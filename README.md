@@ -1,6 +1,6 @@
 # Contents
 
-This directory contains analysis scripts and data for the InfoVis 2018 submission 'Hypothetical OUtcome Plots Help Untrained Observers Judge Trends in Ambiguous Data'. Specific contents are as follows:
+This directory contains analysis scripts and data for the InfoVis 2018 submission "Hypothetical Outcome Plots Help Untrained Observers Judge Trends in Ambiguous Data". Specific contents are as follows:
 
 * Experiment 1: Directory containing analysis scripts and data collected for Experiment 1
 	* E1-AnonymousRaw-fixedLapse.csv: Participant responses collected for Experiment 1, with psychometric function parameters estimated using fixed lapse rates.
