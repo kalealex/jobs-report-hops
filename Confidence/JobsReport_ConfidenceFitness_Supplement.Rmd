@@ -1,0 +1,34 @@
+---
+title: "JobsReport_ConfidenceFitness_Supplement"
+author: "Alex Kale"
+date: "6/14/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Confidence Fitness Supplement
+
+This supplement contains a detailed explanation of the confidence fitness algorithm and a discussion of the strengths and limitations of the model. These were portions of our original manuscript which were removed during revision in order to save space. For details on the statistical inferences in the paper, see the files "JobsReport_E1_Supplement.Rmd" and "JobsReport_E2_Supplement.Rmd". Please feel free to contact the first author with questions about the confidence modeling in the paper or if you'd like to see our implementation of the model, which was written in Matlab.
+
+#Method: Confidence Fitness Algorithm
+
+By estimating confidence fitness, we aim to model the degree to which each user's confidence reporting is coherent with a statistical formulation of confidence in the hope that this will help to contextualize our interpretation of confidence reporting. The confidence fitness model is based on signal detection theory (SDT) and psychometric functions (PFs). Recall that the slope parameter of the PF represents the noise impacting the participant's perception of the level of evidence in a stimulus. We leveraged the estimated level of perceptual noise indicated by each user's PF slope to run a Monte Carlo simulation bootstrapping many judgments from a simulated version of each observer. In each simulated judgment, we calculated the perceived level of evidence for growth or no growth as the actual level of evidence plus Gaussian distributed noise with a mean of zero and a standard deviation equal to the PF slope. We determined the correctness of these simulated judgments based on their agreement or disagreement with the evidence. We then binned the correctness of these simulated judgments by perceived level of evidence. The "idealized"" estimate of confidence for each level of evidence was the mean correctness in each bin.
+
+To account for the fact participants might be idiosyncratic in the values of confidence they report (e.g., rounding to multiples of 5), we used quantile matching to align the frequency of use for each possible confidence rating in our simulation with each participant's reported confidence. This quantile matching also discretized our estimates of confidence per simulated trial. 
+
+Using these discretized estimates of confidence on each simulated trial and the subjective confidence reporting of the participant, used maximum likelihood estimation to find an optimal value of *confidence fitness*, a continuous index from 1 to 0 describing the degree to which reported confidence is similar to confidence estimates in the simulation or a randomly sampled value of estimated confidence. On each iteration of the optimization algorithm, we used the current confidence fitness value ($\alpha$) to model the fact that confidence was not reported with perfect fidelity. Specifically, confidence fitness was used as a mixing parameter to calculate an expected value of confidence on each simulated trial based on imperfect reporting of idealized estimates of confidence from our simulation.
+$$C{_{expected}}=\alpha*C{_{estimated}}(evidence)+(1-\alpha)*C{_{estimated}}(random)$$
+We used this expected confidence on each simulated trial to create a likelihood table estimating the likelihood that a participant would respond with each possible confidence rating (50 - 100) at each perceived level of evidence. We created this table by calculating the proportion of simulated trials at each level of evidence where each value of confidence is expected. We used this likelihood table to calculate the log likelihood of the current level of confidence fitness based on the participant's reported confidence ratings for each stimulus observed.
+$$logLikelihood=\sum(likelihoodTable(evidence,reportedConfidence))$$
+We optimize confidence fitness by iterating through this process until we find a level of $\alpha$ which yields a maximum value for log likelihood.
+
+#Strengths and Limitations
+
+Confidence as a construct is difficult to interpret. In the context of judgments supported by visualizations, higher confidence is not necessarily better than lower confidence. For example, when comparing HOPs and error bars in our first experiment, higher reported confidence in the HOPs condition is associated with noisier confidence reporting as measured by confidence fitness. This suggests that whatever boost in confidence users of HOPs experience is the illusion of confidence, that their confidence is not warranted based on the evidence informing their judgments. This highlights a major strength of the confidence fitness model. By establishing a theoretically motivated ground truth for confidence, we can contextualize raw confidence reporting data in comparison to this ground truth. This supplements our understanding of confidence by quantifying the degree to which confidence reporting fits a particular statistical definition. 
+
+However, there are problems with confidence fitness. The algorithm has a poor or inconsistent ability to predict reported confidence, and this suggests that there may be wrong assumptions in the model. In diagnostic analysis, we noticed an artifact in the Monte Carlo simulation for participants with little noise in their perception of evidence (small PF spreads). This produced estimates of confidence which were much less variable than reported confidence. Future work should search for better-fitting models to establish a ground truth for confidence. 
+
+We also offer an more skeptical interpretation. Perhaps a normative account of confidence which assumes a consistent interpretation of confidence across observers is not appropriate considering the complexity and intersubjectivity of confidence reporting. Future work should use qualitative methods to elucidate what confidence means to users. There may be a disconnect between what visualization researchers have in mind when we ask users to report confidence and what users have in mind when they report confidence.

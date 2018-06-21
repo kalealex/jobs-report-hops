@@ -1,0 +1,315 @@
+---
+title: "JobsReport_E1_Supplement"
+author: ""
+date: "6/20/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dotwhisker)
+library(broom)
+library(dplyr)
+library(lme4)
+library(lmerTest)
+library(brms)
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(gmodels)
+library(lsmeans)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Experiment 1 Results
+
+##Data
+
+We start by loading participant-level data containing estimates of psychometric function (PF) parameters per participant * visualation condition. These parameter estimates were computed in Matlab using a combination of custom analysis scripts and a library of PF fitting functions from Geoffrey Boynton. This code is available upon request but is not included here becasue the custom scripts contain non-anonymized MTurk WorkerIDs.
+
+A power analysis based on pilot data suggested we would need 50 participants to detect within-subjects differences in just-noticable differences (JNDs) for HOPs and error bars with 80% power. Following our [preregistered](https://osf.io/975us/register/5771ca429ad5a1020de2872e) analysis plan, we iteratively collected data and excluded PF fits based on poor fit quality and poor performance. Overall, we recruited 62 participants. Six of these participants were excluded per our preregistered exclusion criteria, but we accidentally collected six participants too many. In order to use our intended sample size for statistical inference, we eliminated six participants at random maintaining counterbalancing of the starting visualization condition within our final sample of 50 participants. Data for the sample of 50 participants used for the statistical inferences presented in the paper are in the files "E1-AnonymousStats-InferenceSample.csv" and "E1-AnonymousRawData-InferenceSample.csv". Data for all 56 recruited subjects passing our preregisted exclusion criteria are provided in the files "E1-AnonymousStats-FullSample.csv" and "E1-AnonymousRawData-FullSample.csv".
+
+For now we'll focus on the estimates of PF parameters in the file "E1-AnonymousStats-InferenceSample.csv" in order to reproduce the analyses presented in the paper.
+
+```{r}
+statsDf = read.csv("E1-AnonymousStats-InferenceSample.csv")
+```
+
+The variables in this dataset are as follows.
+
+1. Subject: MTurk workerIDs 
+  + These are anonymized identifiers (not actual worker IDs) in order to maintain privacy.
+  + Each participant has two rows in the data frame; there are 50 participants.
+2. Visualization: the visualization condition under which data were collected
+  + Coding: c = error bars; h = HOPs
+  + Each participant completed two blocks of trials, one for each visualization condition (within-subjects).
+3. StartCond: the visualization condition on which a worker started
+  + Coding of conditions is identical to the Visualization variable.
+  + Starting condition was counterbalanced across participants (between-subjects).
+4. Threshold: the JND fit to each observer’s data under each visualization condition
+  + JDNs are in units of the absolute value of the log likelihood ratio that a stimulus was produced by the no growth vs the growth trend.
+  + The JND measures the level of evidence at which the participant is expected to answer with their mean accuracy.
+  + The JND is the point on the x-axis which corresponds to the mean value of the psychometric function (PF) on the y-axis.
+5. Spread: the standard deviation of the psychometric function (PF) fit to an observer’s data under each visualization condition
+  + The Spread parameter of the PF shares the same units as the JND.
+  + This is a measure of the width of the PF.
+  + This parameter estimate is inversely proportional to the incline of the PF at its inflection point (aka the JND).
+  + PF spread represents the noise in the observer’s perception of the evidence presented in a stimulus.
+6. ConfidenceFitness: a mixing parameter describing the degree to which reported confidence values are predicted by a statistical formulation of confidence vs randomly sampled confidence values
+  + Units range from 0 (totally random confidence reporting) to 1 (confidence reporting is in sync with statistical confidence).
+7. CompletionTime: the number of milliseconds the participant spent completing the trials used to fit each psychometric function
+  + This is the entire time participants had the webpage open between the beginning of the task and their answer on the last trial, so this should *not* be considered a controlled measure of time spent attending to the task.
+
+We also load in the raw trial-level response data for reference in our analysis.
+
+```{r}
+rawDf = read.csv("E1-AnonymousRawData-InferenceSample.csv")
+```
+
+##Linear Models
+
+We use mixed effects linear models for statistical inference. In specifying the formulation of the linear model for each parameter estimate (columns 4-6 in our stats data frame), we use ANOVA to test whether including an interaction between visualization condition and starting condition leads to a significant reduction in the residual sum of squares. Thus, we use ANOVA to select the most parsimonious linear model supported by our data for each outcome measure. These details can be found in our [preregistered](https://osf.io/975us/register/5771ca429ad5a1020de2872e) analysis plan.
+
+These are linear models for each of our three parameter estimates: thresholds (aka JNDs), spreads, and confidence fitness.
+
+```{r}
+# linear models for each outcome variable
+tMdl1 <- lmer(Threshold ~ Visualization + StartCond + (1|Subject), data = statsDf)
+tMdl2 <- lmer(Threshold ~ Visualization + StartCond + (1|Subject) + Visualization:StartCond, data = statsDf)
+sMdl1 <- lmer(Spread ~ Visualization + StartCond + (1|Subject), data = statsDf)
+sMdl2 <- lmer(Spread ~ Visualization + StartCond + (1|Subject) + Visualization:StartCond, data = statsDf)
+cMdl1 <- lmer(Threshold ~ Visualization + StartCond + (1|Subject), data = statsDf)
+cMdl2 <- lmer(ConfidenceFitness ~ Visualization + StartCond + (1|Subject) + Visualization:StartCond, data = statsDf)
+```
+
+Running ANOVA on our models with and without an interaction term for Visualization:StartCond indicates that we should include the interaction term for modeling PF spreads and confidence fitness but not for modeling JNDs. This is how we chose the models we present in the paper.
+
+```{r eval=FALSE}
+# find most parsimonious model of each pair
+anova(tMdl1, tMdl2) # threshold: use mdl1
+anova(sMdl1, sMdl2) # spread: use mdl2
+anova(cMdl1, cMdl2) # confidence fitness: use mdl2
+```
+
+##Results Per Measure
+
+###Thresholds
+
+A summary of our linear model on JND estimates.
+
+```{r}
+summary(tMdl1)
+confint(tMdl1)
+```
+
+Let's take a look at our regression coefficients for JNDs estimates.
+
+```{r echo=FALSE}
+dwplot(tMdl1, show_intercept = TRUE) %>% 
+  relabel_predictors(c(StartCondh = "Starting Condition HOPs",                       
+                       Visualizationh = "Visualization HOPs",
+                       Threshold = "JNDs")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for JNDs") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position = "none",
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3)
+```
+
+We see that there is a reliable effect of visualation condition on JNDs, such that JNDs are lower on average when participants use HOPs. This suggest that users can make more ambiguous judgments correctly when using HOPs than when using error bars.
+
+Just out of curiousity, what happens to this effect if we include the interaction between visualization condition and starting condition in the model? Here, we check the robustness of the effect of visualization on JNDs to decisions about model specification.
+
+```{r echo=FALSE}
+dwplot(list(tMdl1, tMdl2), show_intercept = TRUE) %>% 
+  relabel_predictors(c(StartCondh = "Starting Condition HOPs",                       
+                       Visualizationh = "Visualization HOPs",
+                       "Visualizationh:StartCondh" = "Vis and Starting Condition Interaction")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for JNDs") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
+      legend.title = element_text(size=8),
+      legend.background = element_rect(color="gray90"),
+      legend.margin = unit(-4, "pt"),
+      legend.key.size = unit(10, "pt"),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3, end = .7,
+      name = "Model Specification",
+      # breaks = c(0, 1),
+      labels = c("Without Interaction", "With Interaction"))
+```
+
+We can see that the point estimate of the effect of visualization on JNDs remains relatively stable, but adding the interaction term to the model increases the variability in the estimate. We report the model without the interaction term in the paper not becasue it yields a statistically significant effect for visualization but because we selected this model by following the procedure in our [preregistration](https://osf.io/975us/register/5771ca429ad5a1020de2872e). Our analysis plan and model selection procedures were submitted to OSF prior to data collection, so this modeling decision was made *a priori*. We acknowledge that the same decision would rightly be considered p-hacking if we chose the model *after* seeing the results of the inference.
+
+In order to better understand the impact of visualization condition on JNDs, it is helpful to see the raw data.
+
+```{r echo=FALSE}
+ggplot(data = statsDf, mapping = aes(x = Visualization, y = Threshold, color = Visualization)) +
+  geom_boxplot(mapping = aes(x = Visualization, y = Threshold)) + 
+  geom_jitter(alpha=0.6) + 
+  ggtitle(label = "JNDs Per Visualization Condition")
+```
+
+It is noteworthy that this effect is driven by 12% of observers (6 total) who performed much worse in the error bars condition than in the HOPs condition. In light of this data, it seems that our effect of visualization on JNDs is best characterized as a difference in the consistency with which observers can use these uncertainty visualizations to do the task rather than a difference in performance among all observers.
+
+###Spreads
+
+A summary of our linear model on PF spread estimates.
+
+```{r}
+summary(sMdl2)
+confint(sMdl2)
+```
+
+Again, we look at regression coefficients for our mixed effects linear model. This time we are modeling PF spread, which measures the noise in the participant's perception of evidence in the task.
+
+```{r echo=FALSE}
+dwplot(sMdl2, show_intercept = TRUE) %>% 
+  relabel_predictors(c(StartCondh = "Starting Condition HOPs",                       
+                       Visualizationh = "Visualization HOPs",
+                       Threshold = "JNDs")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for PF Spreads") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position = "none",
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3)
+```
+
+When we look at the model coefficients for PF spreads, we can see a couple of noteworthy effects. First, starting in the HOPs condition seems to make users more sensitive to evidence in the task. Perhaps participants are learning a mental representation for the task in the first block and paying less attention to the uncertainty visualizations thereafter. On this interpretation, maybe HOPs help participants learn what to expect from sampling error on individual samples more than error bars.
+
+Next, we take a closer look at the interaction between visualization condition and starting condition for the spread parameter estimates. In the plot below, each subplot contains within-subjects shifts in PF spread between the two blocks of the experiment, where participants are grouped based on the visualization condtion in which they started the task.
+
+```{r echo=FALSE}
+ggplot(data = statsDf, mapping = aes(x = Visualization, y = Spread, color = Visualization)) + 
+  geom_boxplot(mapping = aes(x = Visualization, y = Spread)) + 
+  geom_jitter(alpha=0.6) + 
+  facet_wrap(~ StartCond) + 
+  ggtitle(label = "PF Spread Per Visualization Condition, Faceted by Starting Condition")
+```
+
+Here, we can see that on average the condition that a participant starts in is the one in which their spread parameter estimate is larger. Thus, we might cautiously conclude that the noise in the perception of evidence decreases as participants become more practiced at the task. However, we cannot resolve from our data whether this interaction effect is due to practice or learning.
+
+###Confidence Fitness
+
+A summary of our linear model on confidence fitness estimates.
+
+```{r}
+summary(cMdl2)
+confint(cMdl2)
+```
+
+Again, we visualize the linear model coefficients for estimates. We are modeling confidnece fitness, a mixing parameter from 0 to 1 describing the degree to which reported confidence corresponds to a statistical formulation of confidence.
+
+```{r echo=FALSE}
+dwplot(cMdl2, show_intercept = TRUE) %>% 
+  relabel_predictors(c(StartCondh = "Starting Condition HOPs",                       
+                       Visualizationh = "Visualization HOPs",
+                       Threshold = "JNDs")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for Confidence Fitness") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position = "none",
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3)
+```
+
+We can see that there is a main effect of visualization condition on confidence fitness. This means that on average participants were more random in their reporting of confidence when using HOPs and that their confidence reporting was closer to a statistical formulation of confidence when using error bars. Interestingly, since visualization condition is a within-subjects measure, this result also shows that the fidelity of confidence reporting is not consistent within-observers.
+
+In order to further explore this result, we conducted an exploratory data analysis on reported confidence. We used a mixed effects linear model on trial-level response data to estimate reported confidence as a function of the fixed effects of visualization, starting condition, and their interaction as well as fixed effects of stimulus intensity, whether or not a participant’s answer was correct, and their interaction. We also model a random effect of participant.
+
+```{r}
+rawConfMdl <-lmer(Confidence ~ Ratio * Correct + Visualization * StartCond + (1|WorkerID), data = rawDf)
+summary(rawConfMdl)
+confint(rawConfMdl)
+```
+```{r echo=FALSE}
+dwplot(rawConfMdl, show_intercept = TRUE) %>% 
+  relabel_predictors(c(Ratio = "Level of Evidence",                       
+                       CorrectTRUE = "Correct Response",
+                       StartCondh = "Starting Condition HOPs",                       
+                       Visualizationh = "Visualization HOPs",
+                       "Ratio:CorrectTRUE" = "Evidence and Correct Response Interaction",
+                       "Visualizationh:StartCondh" = "Vis and Starting Condition Interaction")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for Reported Confidence") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
+      legend.title = element_text(size=8),
+      legend.background = element_rect(color="gray90"),
+      legend.margin = unit(-4, "pt"),
+      legend.key.size = unit(10, "pt"),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3, end = .3,
+      name = "Parameter Estimation",
+      labels = c("Free Lapse"))
+```
+
+We see main effects for correctness and visualization condition as well as significant interactions between ratio and correctness and visualization and start condition. The boost in reported confidence on correct trials and the interaction between stimulus intensity and correctness were expected based on the findings of Sanders et al. Confidence goes up with stimulus intensity for trials where the participant was correct, but confidence goes down with increasing stimulus intensity on trials where participants were wrong. This can be appreciated by looking at our raw confidence data based on stimulus intensity and correctness, although the visualization is crowded.
+
+```{r echo=FALSE}
+ggplot(rawDf, aes(x=Ratio, y=Confidence, color=Correct)) + geom_point() + ggtitle(label="Confidence Reports by Stimulus Intensity and Correctness")
+```
+
+Sanders et al. found that the expected confidence generated by their model predicted this interaction. In other words, this behavior actually comports with the statistical formulation of confidence used in our model. Let's check for this predictive behavior in our expected confidence estimations.
+
+```{r echo=FALSE}
+# some values for estimated confidence fall below 50
+rawDf %>% filter(ExpectedConfidence > 50) -> rawDfExpectedConfInRange
+# try to recreate figure 2 from Sanders et al. for each participant
+ggplot(rawDfExpectedConfInRange, aes(x=Ratio, color=Correct)) + stat_summary(aes(y=Confidence),fun.y=mean, geom="point", size=1) + stat_summary(aes(y=ExpectedConfidence),fun.y=mean, geom="line", size=0.5) + facet_wrap(~ WorkerID) + theme(strip.background = element_blank(), strip.text.x = element_blank())
+```
+
+Note that reported confidence (dots) often covers a wider range of the y-axis than expected confidence (lines). We've traced the origin of this difference in variability to the Monte Carlo simulation. For subjects with narrow PFs, the amount of noise added to stimulus intensity on each trial to generate simulated percepts is small. This means that the simulated observer only gets trials wrong where the stimulus intensity is really close to 0 and that Pr(correct | perceived stimulus value) is constant and high across most values of perceived stimulus intensity. This might explain the lack of good predictive behavior for subjects with small PF spreads.
+
+Next, we examine the main effect of visualization on confidence reporting and the interaction between visualization and start condition. It is important to acknowledge that these are small effects on average, no greater than 2 units on our confidence scale. Nonetheless, let's visualize our confidence reporting data and try to see this effect.
+
+```{r echo=FALSE}
+ggplot(rawDf, aes(x=Visualization, y=Confidence, color=Visualization)) +  
+  geom_violin(trim=FALSE, adjust=1.5) + 
+  # geom_jitter(pch="-", size=4) +
+  stat_summary(fun.y=mean, geom="point", size=3) +
+  facet_grid(. ~ StartCond) +
+  ggtitle(label="Reported Confidence by Visualization, Faceted by Starting Condition")
+```
+
+Participants are more confident on average in the HOPs condition regardless of starting condition. However, as the interaction effect indicates, participants are most confident on average when they start in the errorbars condition and move into the HOPs condition in the second block.
+
+In light of our confidence fitness analysis showing that the quality of confidence reporting is not very consistent within observers or between visualization conditions, it seem like such small average shifts in confidence reporting are probably not practically significant from a visualization design perspective. Below is a plot of confidence fitness within observers and between visualization conditions. Each point represents confidence fitness estimates in a single observer on each visualization condition. The distance from y = x indicates the inconsistency of confidence reporting within each individual. The wide distribution among points represents the inconsistency between individuals.
+
+```{r echo=FALSE}
+reshape(data=statsDf, direction='wide', idvar='Subject', timevar='Visualization') -> wideStatsDf
+ggplot(data=wideStatsDf, mapping=aes(x=ConfidenceFitness.c, y=ConfidenceFitness.h)) + geom_point() + ggtitle(label = "Confidence Fitness Within Observers for Different Visualization Conditions")
+```
+
+It seems that the impact of visualization condition on confidence reporting is difficult to interpret on its own. If reported confidence goes up but confidence fitness goes down between visualization conditions (as in the case of switching from error bars to HOPs), this suggests that visualizations can induce the illusion of confidence. However, if the quality of confidence monitoring is diminished, is an increase in reported confidence even desirable? Our results suggest that effects of visualization on reported confidence are difficult to interpret without reference to a ground truth analysis of confidence reporting such as the confidence fitness model.
+
+```{r echo=FALSE}
+# procedure for anonymizing data:
+# stats
+# stats = read.csv("JobsReportStats-E1-InferenceSample.csv")
+# stats$Subject <- lapply(levels(stats$Subject)[stats$Subject],digest)
+# stats$Subject <- stats$Subject %>% unlist()
+# write.csv(stats, file = "E1-AnonymousStats-InferenceSample.csv", row.names=FALSE)
+# raw data
+# raw = read.csv("JobsReportRawData-E2.csv")
+# raw$WorkerID <- lapply(levels(raw$WorkerID)[raw$WorkerID],digest)
+# raw$WorkerID <- raw$WorkerID %>% unlist()
+# write.csv(raw, file = "E2-AnonymousRawData.csv", row.names=FALSE)
+```

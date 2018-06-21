@@ -1,0 +1,245 @@
+---
+title: "JobsReport_E2_Results"
+author: ""
+date: "3/29/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dotwhisker)
+library(broom)
+library(dplyr)
+library(lme4)
+library(lmerTest)
+library(brms)
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(gmodels)
+library(lsmeans)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Experiment 2 Results
+
+##Data
+
+We start by loading participant-level data containing parameter estimates per participant, where visualization condition is a between-subjects manipulation. These parameter estimates are acquired with lapse rate as a constrained _free_ parameter between 0 and 0.06.
+
+```{r}
+stats = read.csv("E2-AnonymousStats.csv")
+```
+ 
+The variables in this data sets are as follows.
+
+1. Subject: MTurk workerIDs 
+  + These are anonymized identifiers (not actual worker IDs) in order to maintain privacy.
+  + Each participant has one row in the data frame; there are 150 participants.
+2. Visualization: the visualization condition under which data were collected
+  + Coding: c = line ensembles; h = HOPs (2.5 hz); hf = fast HOPs (10 hz)
+  + Each participant completed two blocks of trials under one of three visualization conditions (between-subjects).
+3. StartCond: the visualization condition on which a worker started
+  + Coding of conditions is identical to the Visualization variable.
+  + This variable is redundant with the Visualization variable, a leftover in our analysis pipeline from experiment 1.
+4. Threshold: the JND fit to each observer’s data under each visualization condition
+  + JDNs are in units of the absolute value of the log likelihood ratio that a stimulus was produced by the no growth vs the growth trend.
+  + The JND measures the level of evidence at which the participant is expected to answer with their mean accuracy.
+  + The JND is the point on the x-axis which corresponds to the mean value of the psychometric function (PF) on the y-axis.
+5. Spread: the standard deviation of the psychometric function (PF) fit to an observer’s data under each visualization condition
+  + The Spread parameter of the PF shares the same units as the JND.
+  + This is a measure of the width of the PF.
+  + This parameter estimate is inversely proportional to the incline of the PF at its inflection point (aka the JND).
+  + PF spread represents the noise in the observer’s perception of the evidence presented in a stimulus.
+6. ConfidenceFitness: a mixing parameter describing the degree to which reported confidence values are predicted by a statistical formulation of confidence vs randomly sampled confidence values
+  + Units range from 0 (totally random confidence reporting) to 1 (confidence reporting is in sync with statistical confidence).
+
+We also load in the raw trial-level response data.
+
+```{r}
+raw = read.csv("E2-AnonymousRaw.csv")
+```
+
+##Linear Models
+
+We use linear models for statistical inference. Details can be found in our [preregistered](https://osf.io/gw4cj/register/5771ca429ad5a1020de2872e) analysis plan.
+
+```{r}
+# linear models for each outcome variable
+tMdl <- lm(Threshold ~ Visualization, data = stats)
+sMdl <- lm(Spread ~ Visualization, data = stats)
+cMdl <- lm(ConfidenceFitness ~ Visualization, data = stats)
+```
+
+##Results Per Measure
+
+###Thresholds
+
+A summary of our linear model on JND estimates.
+
+```{r}
+summary(tMdl)
+confint(tMdl)
+```
+
+We plot the regression coeficients as dots with error bars. This shows estimated effect sizes (differences between the two HOPs conditions and the line ensembles condition) with 95% CIs.
+
+```{r echo=FALSE}
+dwplot(tMdl, show_intercept = TRUE) %>% 
+  relabel_predictors(c(Visualizationh = "Visualization HOPs",
+                       Visualizationhf = "Visualization Fast HOPs",
+                       Threshold = "JNDs")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for JNDs") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
+      legend.title = element_text(size=8),
+      legend.background = element_rect(color="gray90"),
+      legend.margin = unit(-4, "pt"),
+      legend.key.size = unit(10, "pt"),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3, end = .3,
+      name = "Parameter Estimation",
+      labels = c("Free Lapse"))
+```
+
+We see smaller JNDs the slower HOPs condition relative to the control condition, but we do not see the same magnitude of effect for fast HOPs.
+
+It is noteworthy that this effect is driven by a small group of observers who performed much worse in the line ensembles and fast HOPs conditions than observers in the regular HOPs condition. In light of this data, it seems that our effect of visualization on JNDs is best characterized as a difference of consistency between observers in the ability to use these visualizations to do the task rather than a difference in performance among all observers.
+
+```{r echo=FALSE}
+ggplot(data = stats, mapping = aes(x = Visualization, y = Threshold, color = Visualization)) +
+  geom_boxplot(mapping = aes(x = Visualization, y = Threshold)) + 
+  geom_jitter(alpha=0.6) + 
+  ggtitle(label = "JNDs Per Visualization Condition")
+```
+
+###Spreads
+
+A summary of our linear model on PF spread estimates.
+
+```{r}
+summary(sMdl)
+confint(sMdl)
+```
+
+Again, we plot estimated effect sizes as dots with error bars representing 95% CIs.
+
+```{r echo=FALSE}
+dwplot(sMdl, show_intercept = TRUE) %>% 
+  relabel_predictors(c(Visualizationh = "Visualization HOPs",                       
+                       Visualizationhf = "Visualization Fast HOPs")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for PF Spreads") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
+      legend.title = element_text(size=8),
+      legend.background = element_rect(color="gray90"),
+      legend.margin = unit(-4, "pt"),
+      legend.key.size = unit(10, "pt"),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3, end = .3,
+      name = "Parameter Estimation",
+      labels = c("Free Lapse"))
+```
+
+We see no effect of visualization condition on noise in the perception of evidence, as measured by PF spreads.
+
+###Confidence Fitness
+
+A summary of our linear model on confidence fitness estimates.
+
+```{r}
+summary(cMdl)
+confint(cMdl)
+```
+
+Again, we plot estimated effect sizes as dots with error bars representing 95% CIs.
+
+```{r echo=FALSE}
+dwplot(cMdl, show_intercept = TRUE) %>% 
+  relabel_predictors(c(Visualizationh = "Visualization HOPs",                       
+                       Visualizationhf = "Visualization Fast HOPs")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for Confidence Fitness") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
+      legend.title = element_text(size=8),
+      legend.background = element_rect(color="gray90"),
+      legend.margin = unit(-4, "pt"),
+      legend.key.size = unit(10, "pt"),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3, end = .3,
+      name = "Parameter Estimation",
+      labels = c("Free Lapse"))
+```
+
+We see no effect of visualization condition on confidence fitness. These results fail to replicate our finding from E1 that the HOPs condition reduces confidence fitness.
+
+Now we look at a mixed effects linear model raw confidence data. In the first experiment, this analysis was exploratory, but we [preregistered](https://osf.io/gw4cj/register/5771ca429ad5a1020de2872e) this model as a secondary analysis for experiment 2.
+
+```{r}
+rawConfMdl <-lmer(Confidence ~ Ratio * Correct + Visualization + (1|WorkerID), data = raw)
+summary(rawConfMdl)
+confint(rawConfMdl)
+```
+```{r echo=FALSE}
+dwplot(rawConfMdl, show_intercept = TRUE) %>% 
+  relabel_predictors(c(Ratio = "Level of Evidence",                       
+                       CorrectTRUE = "Correct Response",
+                       Visualizationh = "Visualization HOPs",                       
+                       Visualizationhf = "Visualization Fast HOPs",
+                       "Ratio:CorrectTRUE" = "Evidence and Correct Response Interaction")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for Reported Confidence") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
+      legend.title = element_text(size=8),
+      legend.background = element_rect(color="gray90"),
+      legend.margin = unit(-4, "pt"),
+      legend.key.size = unit(10, "pt"),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3, end = .3,
+      name = "Parameter Estimation",
+      labels = c("Free Lapse"))
+```
+
+Here, we see main effects for ratio, correctness, and visualization condition as well as a significant interaction between ratio and correctness. The increase in reported confidence on correct trials and the interaction between stimulus intensity and correctness were expected based on the findings of Sanders et al. Confidence goes up with stimulus intensity for trials where the participant was correct, but confidence goes down with increasing stimulus intensity on trials where participants were wrong. We can see this trend by looking at our raw confidence reports, although the plot is crowded.
+
+```{r echo=FALSE}
+ggplot(raw, aes(x=Ratio, y=Confidence, color=Correct)) + geom_point() + ggtitle(label="Confidence Reports by Stimulus Intensity and Correctness")
+```
+
+Sanders et al. found that the expected confidence generated by their model predicted this interaction between correctness and level of evidence in a stimulus. As they interpretted it, this behavior comports with the statistical formulation of confidence used in our model. Let's check for this predictive behavior in our expected confidence estimations.
+
+```{r echo=FALSE}
+# some values for estimated confidence fall below 50
+raw %>% filter(ExpectedConfidence > 50) -> rawExpectedConfInRange
+# try to recreate figure 2 from Sanders et al. for each participant
+ggplot(rawExpectedConfInRange, aes(x=Ratio, color=Correct)) + stat_summary(aes(y=Confidence),fun.y=mean, geom="point", size=1) + stat_summary(aes(y=ExpectedConfidence),fun.y=mean, geom="line", size=0.5) + facet_wrap(~ WorkerID) + theme(strip.background = element_blank(), strip.text.x = element_blank())
+```
+
+For many observers, reported confidence (dots) covers a wider range of the y-axis than expected confidence (lines). We've traced the origin of this difference in variability to the Monte Carlo simulation. For subjects with narrow PFs, the amount of noise added to stimulus intensity on each trial to generate simulated percepts is small. This means that the simulated observer only gets trials wrong where the stimulus intensity is really close to 0 and that Pr(correct | perceived stimulus value) is constant and high across most values of perceived stimulus intensity. This might explain the lack of good predictive behavior for subjects with small PF spreads.
+
+Next we consider the main effect of the fast HOPs visualization on confidence reporting. It is important to acknowledge that this is a small effect on average, no greater than -6 units on our confidence scale. Let's visualize our confidence reporting data and try to see this effect.
+
+```{r echo=FALSE}
+ggplot(raw, aes(x=Visualization, y=Confidence, color=Visualization)) +  
+  geom_violin(trim=FALSE, adjust=1.5) + 
+  # geom_jitter(pch="-", size=4) +
+  stat_summary(fun.y=mean, geom="point", size=3) +
+  ggtitle(label="Reported Confidence by Visualization")
+```
+
+We can see that participants are more confident on average in the line ensemble condition than in either of the HOPs conditions, although only the difference between fast HOPs and line ensembles achieves significance. Interestingly, this effect is in the opposite direction from our E1, where HOPs were associated with higher reported confidence on average than errorbars.
