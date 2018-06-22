@@ -8,11 +8,8 @@ output: html_document
 ```{r setup, include=FALSE}
 library(dotwhisker)
 library(broom)
-library(dplyr)
 library(lme4)
 library(lmerTest)
-library(brms)
-library(ggplot2)
 library(tidyverse)
 library(knitr)
 library(gmodels)
@@ -24,11 +21,11 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ##Data
 
-We start by loading participant-level data containing estimates of psychometric function (PF) parameters per participant * visualation condition. These parameter estimates were computed in Matlab using a combination of custom analysis scripts and a library of PF fitting functions from Geoffrey Boynton. This code is available upon request but is not included here becasue the custom scripts contain non-anonymized MTurk WorkerIDs.
+We start by loading participant-level data containing estimates of psychometric function (PF) parameters per participant * visualation condition. These parameter estimates were computed in Matlab using a combination of custom analysis scripts and a library of PF fitting functions from Geoffrey Boynton. PF fitting code is available in our repo. Custom scripts are available upon request but are not included in supplemental materials becasue they contain non-anonymized MTurk WorkerIDs.
 
 A power analysis based on pilot data suggested we would need 50 participants to detect within-subjects differences in just-noticable differences (JNDs) for HOPs and error bars with 80% power. Following our [preregistered](https://osf.io/975us/register/5771ca429ad5a1020de2872e) analysis plan, we iteratively collected data and excluded PF fits based on poor fit quality and poor performance. Overall, we recruited 62 participants. Six of these participants were excluded per our preregistered exclusion criteria, but we accidentally collected six participants too many. In order to use our intended sample size for statistical inference, we eliminated six participants at random maintaining counterbalancing of the starting visualization condition within our final sample of 50 participants. Data for the sample of 50 participants used for the statistical inferences presented in the paper are in the files "E1-AnonymousStats-InferenceSample.csv" and "E1-AnonymousRawData-InferenceSample.csv". Data for all 56 recruited subjects passing our preregisted exclusion criteria are provided in the files "E1-AnonymousStats-FullSample.csv" and "E1-AnonymousRawData-FullSample.csv".
 
-For now we'll focus on the estimates of PF parameters in the file "E1-AnonymousStats-InferenceSample.csv" in order to reproduce the analyses presented in the paper.
+We'll focus mostly on the estimates of PF parameters in the file "E1-AnonymousStats-InferenceSample.csv" in order to reproduce the analyses presented in the paper.
 
 ```{r}
 statsDf = read.csv("E1-AnonymousStats-InferenceSample.csv")
@@ -57,7 +54,7 @@ The variables in this dataset are as follows.
 6. ConfidenceFitness: a mixing parameter describing the degree to which reported confidence values are predicted by a statistical formulation of confidence vs randomly sampled confidence values
   + Units range from 0 (totally random confidence reporting) to 1 (confidence reporting is in sync with statistical confidence).
 7. CompletionTime: the number of milliseconds the participant spent completing the trials used to fit each psychometric function
-  + This is the entire time participants had the webpage open between the beginning of the task and their answer on the last trial, so this should *not* be considered a controlled measure of time spent attending to the task.
+  + This is the entire time participants had the webpage open between the beginning of the task and their answer on the last trial, so this should *not* be considered a controlled measure of time spent attending to the task. This time does not include time spent reading the instructions.
 
 We also load in the raw trial-level response data for reference in our analysis.
 
@@ -170,7 +167,6 @@ tMdl3 <- lmer(Threshold ~ Visualization + StartCond + CompletionTime + (1|Subjec
 dwplot(list(tMdl1, tMdl3), show_intercept = TRUE) %>% 
   relabel_predictors(c(StartCondh = "Starting Condition HOPs",                       
                        Visualizationh = "Visualization HOPs",
-                       "Visualizationh:StartCondh" = "Vis and Starting Condition Interaction",
                         CompletionTime = "Time to Complete Trials")) +
   theme_bw() + xlab("Coefficient Estimate") + ylab("") +
   geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
@@ -189,6 +185,8 @@ dwplot(list(tMdl1, tMdl3), show_intercept = TRUE) %>%
       # breaks = c(0, 1),
       labels = c("Without Time", "With Time"))
 ```
+
+We can see that adding completion time to the model doesn't impact the model coefficients.
 
 ###Spreads
 
@@ -360,7 +358,7 @@ It seems that the impact of visualization condition on confidence reporting is d
 
 ##Additional Analysis of Response Bias
 
-In our task participants must interpret which of two data generating scenarios ('growth' or 'no growth' in the job market) is more likely to have produced a given sample of jobs numbers. Overall, are participants more likely to answer 'growth' than 'no growth', or vice-versa? We can see that the frequency of each answer is approximately equal, which is what we would expect given that the experiment is designed to have an equal number of trials where 'growth' and 'no growth' are the correct answer.
+In our task participants must interpret which of two data generating scenarios ('growth' or 'no growth' in the job market) is more likely to have produced a given sample of jobs numbers. Overall, are participants more likely to answer 'growth' than 'no growth', or vice-versa? We can see that the frequency of each answer is approximately equal as a proportion of the number of trials, which is what we would expect given that the experiment is designed to have an equal number of trials where 'growth' and 'no growth' are the correct answer.
 
 ```{r}
 # proportion of 'no growth' responses in the raw data

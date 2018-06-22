@@ -1,18 +1,15 @@
 ---
 title: "JobsReport_E2_Results"
 author: ""
-date: "3/29/2018"
+date: "6/22/2018"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 library(dotwhisker)
 library(broom)
-library(dplyr)
 library(lme4)
 library(lmerTest)
-library(brms)
-library(ggplot2)
 library(tidyverse)
 library(knitr)
 library(gmodels)
@@ -24,10 +21,14 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ##Data
 
-We start by loading participant-level data containing parameter estimates per participant, where visualization condition is a between-subjects manipulation. These parameter estimates are acquired with lapse rate as a constrained _free_ parameter between 0 and 0.06.
+We start by loading participant-level data containing estimates of psychometric function (PF) parameters per participant. These parameter estimates were computed in Matlab using a combination of custom analysis scripts and a library of PF fitting functions from Geoffrey Boynton. PF fitting code is available in our repo. Custom scripts are available upon request but are not included in supplemental materials becasue they contain non-anonymized MTurk WorkerIDs.
+
+A power analysis based on the data from experiment 1 suggested we would need 50 participants *per visualization condition* to detect *between-subjects* differences in just-noticable differences (JNDs) for regular HOPs, fast HOPs, and line ensembles with 80% power. This power analysis assumes that we are trying detect effects of similar magnitude to the effect in experiment 1. Following our [preregistered](https://osf.io/975us/register/5771ca429ad5a1020de2872e) analysis plan, we iteratively collected data and excluded PF fits based on poor fit quality and poor performance. Overall, we recruited 62 participants. Six of these participants were excluded per our preregistered exclusion criteria. Data for the sample of 150 participants used for the statistical inferences presented in the paper are in the files "E2-AnonymousStats.csv" and "E2-AnonymousRawData.csv".
+
+We'll focus mostly on the estimates of PF parameters in the file "E2-AnonymousStats.csv" in order to reproduce the analyses presented in the paper.
 
 ```{r}
-stats = read.csv("E2-AnonymousStats.csv")
+statsDf = read.csv("E2-AnonymousStats.csv")
 ```
  
 The variables in this data sets are as follows.
@@ -36,7 +37,7 @@ The variables in this data sets are as follows.
   + These are anonymized identifiers (not actual worker IDs) in order to maintain privacy.
   + Each participant has one row in the data frame; there are 150 participants.
 2. Visualization: the visualization condition under which data were collected
-  + Coding: c = line ensembles; h = HOPs (2.5 hz); hf = fast HOPs (10 hz)
+  + Coding: c = line ensembles; h = HOPs (2.5 hz; 400 ms per sample); hf = fast HOPs (10 hz; 100 ms per sample)
   + Each participant completed two blocks of trials under one of three visualization conditions (between-subjects).
 3. StartCond: the visualization condition on which a worker started
   + Coding of conditions is identical to the Visualization variable.
@@ -52,11 +53,13 @@ The variables in this data sets are as follows.
   + PF spread represents the noise in the observer’s perception of the evidence presented in a stimulus.
 6. ConfidenceFitness: a mixing parameter describing the degree to which reported confidence values are predicted by a statistical formulation of confidence vs randomly sampled confidence values
   + Units range from 0 (totally random confidence reporting) to 1 (confidence reporting is in sync with statistical confidence).
+7. CompletionTime: the number of milliseconds the participant spent completing the trials used to fit each psychometric function
+  + This is the entire time participants had the webpage open between the beginning of the task and their answer on the last trial, so this should *not* be considered a controlled measure of time spent attending to the task. This time does not include time spent reading the instructions.
 
-We also load in the raw trial-level response data.
+We also load in the raw trial-level response data for reference in our analysis.
 
 ```{r}
-raw = read.csv("E2-AnonymousRaw.csv")
+rawDf = read.csv("E2-AnonymousRawData.csv")
 ```
 
 ##Linear Models
@@ -65,9 +68,9 @@ We use linear models for statistical inference. Details can be found in our [pre
 
 ```{r}
 # linear models for each outcome variable
-tMdl <- lm(Threshold ~ Visualization, data = stats)
-sMdl <- lm(Spread ~ Visualization, data = stats)
-cMdl <- lm(ConfidenceFitness ~ Visualization, data = stats)
+tMdl <- lm(Threshold ~ Visualization, data = statsDf)
+sMdl <- lm(Spread ~ Visualization, data = statsDf)
+cMdl <- lm(ConfidenceFitness ~ Visualization, data = statsDf)
 ```
 
 ##Results Per Measure
@@ -86,8 +89,49 @@ We plot the regression coeficients as dots with error bars. This shows estimated
 ```{r echo=FALSE}
 dwplot(tMdl, show_intercept = TRUE) %>% 
   relabel_predictors(c(Visualizationh = "Visualization HOPs",
+                       Visualizationhf = "Visualization Fast HOPs")) +
+  theme_bw() + xlab("Coefficient Estimate") + ylab("") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Coefficients for JNDs") +
+  theme(plot.title = element_text(face="bold"),
+      legend.position="none",
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank()) +
+  scale_colour_grey(start = .3)
+```
+
+We see smaller JNDs in the regular HOPs condition relative to the control condition, but we do not see the same magnitude of effect for fast HOPs.
+
+Pairwise comparisons adjusted for multiple comparisons (i.e., Tukey's HSD) confirm our interpretation of the linear model above. The only reliable difference in JNDs is between the regular HOPs and line ensembles visualization conditions. The JNDs for fast HOPs are intermediate between regular HOPs and line ensembles but not reliably different.
+
+```{r}
+tAov <- aov(Threshold ~ Visualization, data = statsDf)
+TukeyHSD(tAov)
+```
+
+It is noteworthy that this effect is driven by a small group of observers who performed much worse in the line ensembles and fast HOPs conditions than observers in the regular HOPs condition. In light of this data, it seems that our effect of visualization on JNDs is best characterized as a difference of consistency between observers in the ability to use these visualizations to do the task rather than a difference in performance among all observers.
+
+```{r echo=FALSE}
+ggplot(data = statsDf, mapping = aes(x = Visualization, y = Threshold, color = Visualization)) +
+  geom_boxplot(mapping = aes(x = Visualization, y = Threshold)) + 
+  geom_jitter(alpha=0.6) + 
+  ggtitle(label = "JNDs Per Visualization Condition")
+```
+
+Reviewers asked whether this subgroup of participants with poor performance (larger JNDs) on the line ensembles condition is accounted for by the time spent completing the task. To check this, we compare the model of JNDs presented in the paper to a similar model including the time spent to complete the trials used to fit each PF as a predictor.
+
+```{r}
+# convert completion time from milliseconds to minutes
+statsDf$CompletionTime <- statsDf$CompletionTime / 1000 / 60
+# specify the model with completion time as a predictor
+tMdl2 <- lm(Threshold ~ Visualization + CompletionTime, data = statsDf)
+```
+```{r echo=FALSE}
+dwplot(list(tMdl, tMdl2), show_intercept = TRUE) %>% 
+  relabel_predictors(c(Visualizationh = "Visualization HOPs",
                        Visualizationhf = "Visualization Fast HOPs",
-                       Threshold = "JNDs")) +
+                       CompletionTime = "Time to Complete Trials")) +
   theme_bw() + xlab("Coefficient Estimate") + ylab("") +
   geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
   ggtitle("Coefficients for JNDs") +
@@ -95,26 +139,18 @@ dwplot(tMdl, show_intercept = TRUE) %>%
       legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
       legend.title = element_text(size=8),
       legend.background = element_rect(color="gray90"),
-      legend.margin = unit(-4, "pt"),
+      legend.spacing = unit(-4, "pt"),
       legend.key.size = unit(10, "pt"),
       panel.grid.major = element_blank(), 
       panel.grid.minor = element_blank(),
       panel.background = element_blank()) +
-  scale_colour_grey(start = .3, end = .3,
-      name = "Parameter Estimation",
-      labels = c("Free Lapse"))
+  scale_colour_grey(start = .3, end = .7,
+      name = "Model Specification",
+      # breaks = c(0, 1),
+      labels = c("Without Time", "With Time"))
 ```
 
-We see smaller JNDs the slower HOPs condition relative to the control condition, but we do not see the same magnitude of effect for fast HOPs.
-
-It is noteworthy that this effect is driven by a small group of observers who performed much worse in the line ensembles and fast HOPs conditions than observers in the regular HOPs condition. In light of this data, it seems that our effect of visualization on JNDs is best characterized as a difference of consistency between observers in the ability to use these visualizations to do the task rather than a difference in performance among all observers.
-
-```{r echo=FALSE}
-ggplot(data = stats, mapping = aes(x = Visualization, y = Threshold, color = Visualization)) +
-  geom_boxplot(mapping = aes(x = Visualization, y = Threshold)) + 
-  geom_jitter(alpha=0.6) + 
-  ggtitle(label = "JNDs Per Visualization Condition")
-```
+We can see that adding completion time to the model doesn't impact the model coefficients.
 
 ###Spreads
 
@@ -135,17 +171,11 @@ dwplot(sMdl, show_intercept = TRUE) %>%
   geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
   ggtitle("Coefficients for PF Spreads") +
   theme(plot.title = element_text(face="bold"),
-      legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
-      legend.title = element_text(size=8),
-      legend.background = element_rect(color="gray90"),
-      legend.margin = unit(-4, "pt"),
-      legend.key.size = unit(10, "pt"),
+      legend.position="none",
       panel.grid.major = element_blank(), 
       panel.grid.minor = element_blank(),
       panel.background = element_blank()) +
-  scale_colour_grey(start = .3, end = .3,
-      name = "Parameter Estimation",
-      labels = c("Free Lapse"))
+  scale_colour_grey(start = .3)
 ```
 
 We see no effect of visualization condition on noise in the perception of evidence, as measured by PF spreads.
@@ -159,7 +189,7 @@ summary(cMdl)
 confint(cMdl)
 ```
 
-Again, we plot estimated effect sizes as dots with error bars representing 95% CIs.
+We visualize estimated effect sizes as dots with error bars representing 95% CIs. We are modeling confidnece fitness, a mixing parameter from 0 to 1 describing the degree to which reported confidence corresponds to a statistical formulation of confidence.
 
 ```{r echo=FALSE}
 dwplot(cMdl, show_intercept = TRUE) %>% 
@@ -169,77 +199,73 @@ dwplot(cMdl, show_intercept = TRUE) %>%
   geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
   ggtitle("Coefficients for Confidence Fitness") +
   theme(plot.title = element_text(face="bold"),
-      legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
-      legend.title = element_text(size=8),
-      legend.background = element_rect(color="gray90"),
-      legend.margin = unit(-4, "pt"),
-      legend.key.size = unit(10, "pt"),
+      legend.position="none",
       panel.grid.major = element_blank(), 
       panel.grid.minor = element_blank(),
       panel.background = element_blank()) +
-  scale_colour_grey(start = .3, end = .3,
-      name = "Parameter Estimation",
-      labels = c("Free Lapse"))
+  scale_colour_grey(start = .3)
 ```
 
-We see no effect of visualization condition on confidence fitness. These results fail to replicate our finding from E1 that the HOPs condition reduces confidence fitness.
+We see no effect of visualization condition on confidence fitness. Similarly we saw a null result for confidence fitness in the first experiment.
 
 Now we look at a mixed effects linear model raw confidence data. In the first experiment, this analysis was exploratory, but we [preregistered](https://osf.io/gw4cj/register/5771ca429ad5a1020de2872e) this model as a secondary analysis for experiment 2.
 
 ```{r}
-rawConfMdl <-lmer(Confidence ~ Ratio * Correct + Visualization + (1|WorkerID), data = raw)
+# Log likelihood ratio (Ratio) is stored in the raw data with signs (negative vs positive) indicating the data-generating model for the stimulus, where positive log ratios indicate no growth and negative log ratios indicate a growth trend.
+# We need to take the absolute value of this log likelihood ratio in order to model confidence as a function of evidence regardless of the data generating model, as we do in the paper.
+rawDf$Evidence <- abs(rawDf$Ratio)
+# specify linear model
+rawConfMdl <-lmer(Confidence ~ Evidence * Correct + Visualization + (1|WorkerID), data = rawDf)
 summary(rawConfMdl)
 confint(rawConfMdl)
 ```
 ```{r echo=FALSE}
 dwplot(rawConfMdl, show_intercept = TRUE) %>% 
-  relabel_predictors(c(Ratio = "Level of Evidence",                       
+  relabel_predictors(c(Evidence = "Level of Evidence",                       
                        CorrectTRUE = "Correct Response",
                        Visualizationh = "Visualization HOPs",                       
                        Visualizationhf = "Visualization Fast HOPs",
-                       "Ratio:CorrectTRUE" = "Evidence and Correct Response Interaction")) +
+                       "Evidence:CorrectTRUE" = "Evidence and Correct Response Interaction")) +
   theme_bw() + xlab("Coefficient Estimate") + ylab("") +
   geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
   ggtitle("Coefficients for Reported Confidence") +
   theme(plot.title = element_text(face="bold"),
-      legend.position=c(0.06, 0.02), legend.justification=c(0, 0),
-      legend.title = element_text(size=8),
-      legend.background = element_rect(color="gray90"),
-      legend.margin = unit(-4, "pt"),
-      legend.key.size = unit(10, "pt"),
+      legend.position="none",
       panel.grid.major = element_blank(), 
       panel.grid.minor = element_blank(),
       panel.background = element_blank()) +
-  scale_colour_grey(start = .3, end = .3,
-      name = "Parameter Estimation",
-      labels = c("Free Lapse"))
+  scale_colour_grey(start = .3)
 ```
 
-Here, we see main effects for ratio, correctness, and visualization condition as well as a significant interaction between ratio and correctness. The increase in reported confidence on correct trials and the interaction between stimulus intensity and correctness were expected based on the findings of Sanders et al. Confidence goes up with stimulus intensity for trials where the participant was correct, but confidence goes down with increasing stimulus intensity on trials where participants were wrong. We can see this trend by looking at our raw confidence reports, although the plot is crowded.
+Here, we see main effects for evidence, correctness, and the fast HOPs visualization condition as well as a significant interaction between evidence and correctness. The increase in reported confidence on correct trials and the interaction between stimulus intensity and correctness were expected based on the findings of Sanders et al. (2016), who created the confidence fitness model. Confidence goes up with stimulus intensity for trials where the participant was correct, but confidence goes down with increasing stimulus intensity on trials where participants were wrong. We can see this trend by looking at our raw confidence reports, although the plot is crowded.
 
 ```{r echo=FALSE}
-ggplot(raw, aes(x=Ratio, y=Confidence, color=Correct)) + geom_point() + ggtitle(label="Confidence Reports by Stimulus Intensity and Correctness")
+ggplot(rawDf, aes(x=Ratio, y=Confidence, color=Correct)) + geom_point() + ggtitle(label="Confidence Reports by Level of Evidence and Correctness")
 ```
 
-Sanders et al. found that the expected confidence generated by their model predicted this interaction between correctness and level of evidence in a stimulus. As they interpretted it, this behavior comports with the statistical formulation of confidence used in our model. Let's check for this predictive behavior in our expected confidence estimations.
+Sanders et al. (2016) found that the expected confidence generated by their model predicted this interaction between correctness and level of evidence in a stimulus. As they interpretted it, this behavior comports with the statistical formulation of confidence used in our model. Let's check for this predictive behavior in our expected confidence estimations.
 
 ```{r echo=FALSE}
 # some values for estimated confidence fall below 50
-raw %>% filter(ExpectedConfidence > 50) -> rawExpectedConfInRange
+rawDf %>% filter(ExpectedConfidence > 50) -> rawExpectedConfInRange
 # try to recreate figure 2 from Sanders et al. for each participant
 ggplot(rawExpectedConfInRange, aes(x=Ratio, color=Correct)) + stat_summary(aes(y=Confidence),fun.y=mean, geom="point", size=1) + stat_summary(aes(y=ExpectedConfidence),fun.y=mean, geom="line", size=0.5) + facet_wrap(~ WorkerID) + theme(strip.background = element_blank(), strip.text.x = element_blank())
 ```
 
-For many observers, reported confidence (dots) covers a wider range of the y-axis than expected confidence (lines). We've traced the origin of this difference in variability to the Monte Carlo simulation. For subjects with narrow PFs, the amount of noise added to stimulus intensity on each trial to generate simulated percepts is small. This means that the simulated observer only gets trials wrong where the stimulus intensity is really close to 0 and that Pr(correct | perceived stimulus value) is constant and high across most values of perceived stimulus intensity. This might explain the lack of good predictive behavior for subjects with small PF spreads.
+For many observers, reported confidence (dots) covers a wider range of the y-axis than expected confidence (lines). We've traced the origin of this difference in variability to the Monte Carlo simulation. For subjects with narrow PFs, the amount of noise added to evidence on each trial to generate simulated percepts is small. This means that the *simulated observer* only gets trials wrong where the evidence is really close to 0 (indicating that the stimulus conveys minimal information to disambiguate the underlying trend). A concequence of the *simulated observer* perceiving most stimuli correctly is that the model predicts values of confidence
+$$Pr(correct \mid perceivedEvidence)$$
+which are constant and high across most values of perceived evidence. In other words, low noise in simulated percepts leads to low variability in predicted confidence. This might explain the lack of good predictive behavior for subjects with small PF spreads. 
+
+See the file "JobsReport_ConfidenceFitness_Supplement.Rmd" for a detailed explanation of the confidence fitness algorithm and additional remarks on the model's strengths and limitations.
 
 Next we consider the main effect of the fast HOPs visualization on confidence reporting. It is important to acknowledge that this is a small effect on average, no greater than -6 units on our confidence scale. Let's visualize our confidence reporting data and try to see this effect.
 
 ```{r echo=FALSE}
-ggplot(raw, aes(x=Visualization, y=Confidence, color=Visualization)) +  
+ggplot(rawDf, aes(x=Visualization, y=Confidence, color=Visualization)) +  
   geom_violin(trim=FALSE, adjust=1.5) + 
   # geom_jitter(pch="-", size=4) +
   stat_summary(fun.y=mean, geom="point", size=3) +
   ggtitle(label="Reported Confidence by Visualization")
 ```
 
-We can see that participants are more confident on average in the line ensemble condition than in either of the HOPs conditions, although only the difference between fast HOPs and line ensembles achieves significance. Interestingly, this effect is in the opposite direction from our E1, where HOPs were associated with higher reported confidence on average than errorbars.
+We can see that participants are more confident on average in the line ensemble condition than in either of the HOPs conditions, although only the difference between fast HOPs and line ensembles achieves statistical significance. Interestingly, this effect is in the opposite direction from our E1, where HOPs were associated with higher reported confidence on average than errorbars.
