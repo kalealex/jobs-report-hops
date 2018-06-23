@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta content="IE=edge" http-equiv="X-UA-Compatible">
+  <meta content="width=device-width, initial-scale=1" name="viewport">
+  <!-- jQuery 2.1.1 -->
+  <script src="https://code.jquery.com/jquery-2.1.1.js"></script>
+  <script src="./vendor/jquery-2.2.4.min.js"></script>
+  <!-- jQuery UI 1.11.1 -->
+  <script src="https://code.jquery.com/ui/1.11.1/jquery-ui.js"></script>
+  <script src="./vendor/jquery-ui-1.12.0.js"></script>
+
+  <!-- Bootstrap 3.3.7 -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+  <link rel="stylesheet" href="./vendor/bootstrap.min.css">
+
+  <!-- Optional theme -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+  <link rel="stylesheet" href="./vendor/bootstrap-theme.min.css">
+
+  <!-- d3.v3 -->
+  <script charset="utf-8" src="https://d3js.org/d3.v3.min.js"></script>
+  <script src="./vendor/d3.v3.min.js"></script>
+
+  <title></title>
+</head>
+<body>
+  <figcaption class="interactive-caption"></figcaption>
+  <div class="interactive-graphic">
+  <style type="text/css">
+
+    /* Clearfix http://nicolasgallagher.com/micro-clearfix-hack/ */
+    .cf:before,
+    .cf:after,
+    .section:before,
+    .section:after,
+    .c-group:before,
+    .c-group:after {
+        content: " ";
+        display: table;
+    }
+    .cf:after,
+    .section:after,
+    .c-group:after {
+        clear: both;
+    }
+    .g-article {
+        width: 840px;
+        margin: 40px auto 20px;
+        font-size: 17px;
+        line-height: 1.5em;
+    }
+    .g-graphic {
+        font-family: Georgia;
+        /*width: 840px;*/
+        margin: 0 auto;
+        /*  width: 550px;
+    margin-left: 137px;*/
+    }
+    .g-baseline .tick .line {
+        stroke: #000;
+    }
+    .g-graphic h3 {
+        font-family: "Lato", "Helvetica-Neue", Helvetica, sans-serif;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1.3em;
+    }
+    .g-graphic .g-body {
+        font-size: 16px;
+        line-height: 1.4em;
+        margin-bottom: 1em;
+    }
+    .g-graphic svg {
+        font-family: "Lato", "Helvetica-Neue", Helvetica, sans-serif;
+    }
+    /* Bars */
+
+    .g-bars .g-play-pause {
+        float: right;
+        margin: 0 0 0 10px;
+        font-size: 13px;
+        width: 100px;
+        position: absolute;
+        right: 0;
+        top: 0;
+        padding: 8px 12px;
+        font-size: 12px;
+        border-radius: 3px;
+        border: solid 1px hsl(206, 12%, 73%);
+        background: hsl(192, 20%, 95%);
+        color: hsl(206, 100%, 23%);
+        cursor: pointer;
+    }
+    .g-bars .g-charts {
+        margin-bottom: 21px;
+    }
+    .g-bars .g-chart--real {
+        width: 48.5%;
+        float: left;
+        margin-right: 3%;
+    }
+    .g-bars .g-chart--reported {
+        width: 48.5%;
+        float: left;
+        margin-left: 25%;
+    }
+    .g-bars .domain {
+        fill: none;
+    }
+    .domain {
+      fill: none;
+    }
+    .g-bars .tick line {
+        stroke: #ddd;
+    }
+    .g-bars .tick.g-baseline line {
+        stroke: #000;
+    }
+    .g-bars .tick text {
+        fill: #999;
+        font-size: 11px;
+    }
+    .g-bars rect {
+        fill: rgb(158, 75, 108);
+    }
+    .g-stripe {
+        fill: rgba(158, 75, 108, 0.85);
+    }
+    .g-line { /* added to deal with line formatting */
+        fill: none;
+        stroke: rgba(158, 75, 108, 0.7);
+    }
+    .x.axis .tick line {
+        display: none;
+    }
+    /* Variations Slider */
+
+    .g-variations {
+        /*width:100%;*/
+    }
+    .g-variations h3 {
+        font-weight: normal;
+        color: #000;
+    }
+    .g-variations .g-inputs {
+        margin: 2em 0;
+    }
+    .g-variations .g-slider input {
+        display: block;
+        width: 100%;
+        max-width: 80%;
+        margin: 0;
+    }
+    .g-variations .g-random {
+        float: left;
+        width: 15%;
+        font-size: 13px;
+        margin: 0 0 0 5%;
+    }
+    input[type=radio] {
+        margin: 5px 6px 0px 0;
+    }
+    .g-variations .g-reaction {
+        padding: 45px 30px 30px;
+        background-color: #f6f6f6;
+        font-size: 30px;
+        line-height: 1.3em;
+        font-family: "nyt-cheltenham", Georgia, serif;
+        font-weight: bold;
+        font-style: italic;
+        text-align: center;
+        background: url(https://static01.nyt.com/newsgraphics/2014/04/01/jobs-mad-libs/c8fccbdc6744dd9b89d712d5ebff68c866f0b306/paper-top.jpg), url(https://static01.nyt.com/newsgraphics/2014/04/01/jobs-mad-libs/c8fccbdc6744dd9b89d712d5ebff68c866f0b306/paper-bottom.jpg), url(https://static01.nyt.com/newsgraphics/2014/04/01/jobs-mad-libs/c8fccbdc6744dd9b89d712d5ebff68c866f0b306/paper-middle.jpg);
+        background-repeat: no-repeat, no-repeat, repeat;
+        background-position: top center, bottom center, center center;
+        display: none;
+    }
+    .g-variations .g-reaction .g-diff {
+        border-radius: 3px;
+        background-color: rgba(220, 220, 100, 0.5);
+        padding: 2px 4px;
+    }
+    .g-variations .g-reaction .g-p {
+        margin-bottom: 1em;
+    }
+    .g-graphic .g-upshot-header {
+        font-size: 25px;
+        font-weight: 300;
+        margin: 10px 0 30px;
+        position: relative;
+    }
+    .g-charts {
+        position: relative;
+    }
+
+    .g-row {
+      position: relative;
+    }
+    .g-chart--increasing {
+      border-left: dotted 2px #ddd;
+    }
+    .g-row-top {
+      border-bottom: dotted 2px #ddd;
+    }
+
+    .grid-title-horizontal {
+      position: absolute;
+      width: 125px;
+      text-align: center;
+      top: 4%;
+      transform: translateY(-50%);
+      font-size: 1.0em;
+      margin-left: 3.25%;
+    }
+
+    @media (min-width: 768px) {
+      .grid-title-horizontal {
+        top: 43%;
+        width: 150px;
+        font-size: 1.5rem;
+        margin-left: 5%;
+      }
+    }
+
+    @media (min-width: 1024px) {
+      .grid-title-horizontal {
+        top: 45%;
+        font-size: 1.75rem;
+        margin-left: 6.25%;
+      }
+    }
+
+    @media (min-width: 1280px) {
+      .grid-title-horizontal {
+        font-size: 2.15rem;
+      }
+    }
+
+    .y.axis path {
+      stroke: #DDD;
+      stroke-width: 1.5px;
+    }
+    .chart-title {
+        width: 220px;
+    }
+    .interactive {
+        border-top: none !important;
+        border-bottom: none !important;
+    }
+    .page-interactive-embedded {
+        border: 0;
+        margin-left: 6px;
+        margin-right: 6px;
+    }
+    .page-interactive-app .g-bars .g-play-pause,
+    .page-interactive-embedded .g-bars .g-play-pause {
+        display: none;
+    }
+    .page-interactive-app .g-graphic,
+    .page-interactive-embedded .g-graphic {
+        width: auto;
+        max-width: 588px;
+    }
+    @media (max-width: 550px) {
+        .page-interactive-app .g-graphic,
+        .page-interactive-embedded .g-graphic {
+            width: auto;
+            max-width: 840px;
+        }
+        .page-interactive-app .g-chart,
+        .page-interactive-embedded .g-chart {
+            max-width: 300px;
+            width: 100%;
+            margin-left: auto;
+            margin-right: auto;
+            float: none;
+        }
+        .page-interactive-app .g-chart--reported,
+        .page-interactive-embedded .g-chart--reported {
+            margin-top: 20px;
+        }
+    }
+    h6 {
+        font-size: 2.25rem;
+        line-height: 2.5rem;
+        font-family: "Lato", arial, helvetica, sans-serif;
+        font-style: normal;
+        font-weight: 300;
+        margin-bottom: 10px;
+        margin-left: 100px;
+    }
+    @media (max-width: 700px) {
+        .g-graphic {
+            width: 100%;
+        }
+    }
+
+  </style>
+    <div class='g-graphic-static g-bars'>
+      <div class='row'>
+        <div class='col-xs-4 col-xs-offset-2'>
+          <center><h3 class='grid-title grid-title-vertical'> No Growth Trend </h3></center>
+        </div>
+        <div class='col-xs-4'>
+          <center><h3 class='grid-title grid-title-vertical'> Growth Trend </h3></center>
+        </div>
+      </div>
+      <!-- Start Bars with errorbars -->
+      <div class='row g-row g-row-top'>
+        <h3 class='grid-title grid-title-horizontal col-lg-offset-1'>Bar graph with error bars</h3>
+        <div class='col-xs-4 col-xs-offset-2'>
+          <div class='g-chart g-static g-chart--steady g-chart-bar g-chart-errorbars'></div>
+        </div>
+        <div class='col-xs-4'>
+          <div class='g-chart g-static g-chart--increasing g-chart-bar g-chart-errorbars'></div>
+        </div>
+
+      </div>
+      <!-- End Bars with errorbars -->
+      <!-- Start Bar HOPs -->
+      <div class='row g-row g-row-top'>
+        <h3 class='grid-title grid-title-horizontal col-lg-offset-1'>Bar HOPs</h3>
+        <div class='col-xs-4 col-xs-offset-2'>
+          <div class='g-chart g-uncertain g-chart--steady g-chart-bar' data-random="" data-rate="0"></div>
+        </div>
+        <div class='col-xs-4'>
+          <div class='g-chart g-uncertain g-chart--increasing g-chart-bar' data-random="" data-rate="15"></div>
+        </div>
+      </div>
+      <!-- End Bar HOPs -->
+      <!-- Start Line Ensembles -->
+      <div class='row g-row g-row-top'>
+        <h3 class='grid-title grid-title-horizontal col-lg-offset-1'>Line Ensembles</h3>
+        <div class='col-xs-4 col-xs-offset-2'>
+          <div class='g-chart g-static g-chart--steady g-chart-line' data-random="" data-rate="0"></div>
+        </div>
+        <div class='col-xs-4'>
+          <div class='g-chart g-static g-chart--increasing g-chart-line' data-random="" data-rate="15"></div>
+        </div>
+      </div>
+      <!-- End Line Ensembles -->
+      <!-- Start Line HOPs -->
+      <div class='row g-row g-row-top'>
+        <h3 class='grid-title grid-title-horizontal col-lg-offset-1'>Line HOPs</h3>
+        <div class='col-xs-4 col-xs-offset-2'>
+          <div class='g-chart g-uncertain g-chart--steady g-chart-line g-slow' data-random="" data-rate="0"></div>
+        </div>
+        <div class='col-xs-4'>
+          <div class='g-chart g-uncertain g-chart--increasing g-chart-line g-slow' data-random="" data-rate="15"></div>
+        </div>
+      </div>
+      <!-- End Line HOPs -->
+      <!-- Start Fast Line HOPs -->
+      <div class='row g-row g-row-bottom'>
+        <h3 class='grid-title grid-title-horizontal col-lg-offset-1'>Fast Line HOPs</h3>
+        <div class='col-xs-4 col-xs-offset-2'>
+          <div class='g-chart g-uncertain g-chart--steady g-chart-line g-fast' data-random="" data-rate="0"></div>
+        </div>
+        <div class='col-xs-4'>
+          <div class='g-chart g-uncertain g-chart--increasing g-chart-line g-fast' data-random="" data-rate="15"></div>
+        </div>
+      </div>
+      <!-- End fast Line HOPs -->
+    </div>
+  </div>
+  <script src="./barChart.js"></script>
+  <script src="./stripePlotDistribution.js"></script>
+  <script src="./linePlotDistribution.js"></script>
+  <script src="./allConditions.js"></script>
+</body>
+</html>
