@@ -8,6 +8,23 @@ https://kalealex.github.io/jobs-report-hops/Additional%20Interfaces/Conditions
 To see the interface we used to collect data for our experiments, follow this url.
 https://kalealex.github.io/jobs-report-hops/Additional%20Interfaces/Experimental%20Interface/experimental-interface-all.pdf
 
+## Data Analysis
+
+Find supplemental materials containing the data analyses presented in the paper at the following urls.
+
+* Experiment 1: https://kalealex.github.io/jobs-report-hops/Experiment%201/JobsReport_E1_Supplement.html
+* Experiment 2: https://kalealex.github.io/jobs-report-hops/Experiment%202/JobsReport_E2_Supplement.html
+
+You can use these R markdown documents and the anonymized data files provided in our repository to reproduce the analyses we present in the paper.
+
+Also, note that these files contain supplementary analyses used to investigate: 
+
+* The predictive performance of the confidence fitness model, 
+* The impact of including time to complete the task as a covariate in our inferential model of JNDs, 
+* The presence of biases in behavioral responses.
+
+These markdown files walk through the thought process behind our analyses and provide many additional figures in order to help provide additional context for interpretting the findings we present in the paper.
+
 ## Contents
 
 This repository contains analysis scripts and data for the InfoVis 2018 submission "Hypothetical Outcome Plots Help Untrained Observers Judge Trends in Ambiguous Data". Specific contents are as follows:

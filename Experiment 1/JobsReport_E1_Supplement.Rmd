@@ -367,7 +367,7 @@ sum(rawDf$Response=="steady") / length(rawDf$Response)
 sum(rawDf$Response=="increase") / length(rawDf$Response)
 ```
 
-We also want to know what makes our participants more likely to answer 'growth' vs 'no growth'. To address this we conduct and exploratory analysis on responses for each trial. We use logistic mixed effects regression estimate response ('growth' or 'no growth') as a function of the fixed effects of visualization, starting condition, and their interaction as well as fixed effects of log likelihood ratio (signed evidence) and whether or not a participant’s answer was correct. We also model a random effect of participant. We do not model an interaction between log likelihood ratio and correctness because the estimation procedure does not converge for due to some combinations of these predictors where there are very few observations.
+We also want to know what makes our participants more likely to answer 'growth' vs 'no growth'. To address this we conduct and exploratory analysis on responses for each trial. We use logistic mixed effects regression estimate response ('growth' or 'no growth') as a function of the fixed effects of visualization, starting condition, and their interaction as well as fixed effects of log likelihood ratio (signed evidence) and whether or not a participant’s answer was correct. We also model a random effect of participant. We do not model an interaction between log likelihood ratio and correctness because the estimation procedure does not converge due to some combinations of these predictors where there are very few observations.
 
 ```{r}
 # logistic regression of response bias
@@ -377,9 +377,10 @@ confint(bMdl)
 ```
 
 In order to understand this model, we need to know how variables are coded in the model:
-+ Responses of 'growth' are coded as 0 and responses of 'no growth are coded as 1. This means that positive coefficiencts indicate that a predictor makes a response of 'no growth' more likely, and negative coefficiencts indicate that a predictor makes a response of 'growth' more likely.
-+ Ratio in this model is signed so that negative values indicate evidence for the 'growth' scenario and positive values indicate evidence for the 'no growth' scenario. Throughout the study, we uset he absolute value of this log likelihood ratio as our metric of evidence for perceptual decision making, but here we do *not* take the absolute value.
-+ The variables Correct, Visualization, and StartCond are coded as they are in the other models presented here.
+
+* Responses of 'growth' are coded as 0 and responses of 'no growth' are coded as 1. This means that positive coefficiencts indicate that a predictor makes a response of 'no growth' more likely, and negative coefficiencts indicate that a predictor makes a response of 'growth' more likely.
+* Ratio in this model is signed so that negative values indicate evidence for the 'growth' scenario and positive values indicate evidence for the 'no growth' scenario. Throughout the study, we use the absolute value of this log likelihood ratio as our metric of evidence for perceptual decision making, but here we do *not* take the absolute value.
+* The variables Correct, Visualization, and StartCond are coded as they are in the other models presented here.
 
 Let's plot the coefficients for this logistic mixed effects regression to see how these different predictors and their interactions bias responses.
 
