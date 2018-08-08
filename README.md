@@ -23,7 +23,7 @@ Also, note that these files contain supplementary analyses used to investigate:
 * The impact of including time to complete the task as a covariate in our inferential model of JNDs, 
 * The presence of biases in behavioral responses.
 
-These markdown files walk through the thought process behind our analyses and provide many additional figures in order to help provide additional context for interpretting the findings we present in the paper.
+These markdown files walk through the thought process behind our analyses and provide many additional figures in order to help provide additional context for interpreting the findings we present in the paper.
 
 ## Contents
 
