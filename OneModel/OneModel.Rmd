@@ -110,11 +110,11 @@ The point of this exercise is that all parameters, both at the subject level (ps
 e2m <- map2stan(
   alist(
     correct ~ dbinom(1,p), # binomial distribution of correctness on each trial
-    scaledProbit(p,threshold[subject],spread[subject],0.5,lapse[subject]) <- a + br*ratio + bh*hops + bf*fast + bl*lines, # likelikehood function w/ scaled probit link
+    scaledProbit(p,threshold[subject],spread[subject],0.5,lapse[subject]) <- a + bi*intensity + bh*hops + bf*fast + bl*lines, # likelikehood function w/ scaled probit link
     threshold[subject] ~ dunif(0,15), # estimate threshold, spread, and lapse parameters of the PF for each subject
     spread[subject] ~ dcauchy(0,1),
     lapse[subject] ~ dunif(0,.06),
-    c(a,br,bh,bf,bl) ~ dnorm(0,10) # weak priors for model coefficients
+    c(a,bi,bh,bf,bl) ~ dnorm(0,10) # weak priors for model coefficients
   ),
   data = e2df,
   chains = 4,
