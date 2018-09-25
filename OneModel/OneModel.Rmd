@@ -1,0 +1,133 @@
+---
+title: "One Model To Rule Them All"
+author: "Alex Kale"
+date: "9/24/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rethinking)
+```
+
+## Experiment 2
+
+### Load Raw Data
+
+These data were collected in a two-alternative forced choice experiement where participants judged stimuli at varying levels of evidence and were either correct or incorrect on each trial. In experiment 2, each participant was assigned to one of three possible uncertainty visualization conditions: regular HOPs, fast HOPs, or line ensembles.
+
+```{r}
+# e1df = read.csv("E1-AnonymousRawData-InferenceSample.csv")
+e2df = read.csv("E2-AnonymousRawData.csv")
+```
+
+### Preprocessing
+
+```{r}
+# format data for model
+e2df$correct <- as.integer(e2df$Correct)
+e2df$intensity <- abs(e2df$Ratio)
+e2df$hops <- as.integer(e2df$Visualization=="h")
+e2df$fast <- as.integer(e2df$Visualization=="hf")
+e2df$lines <- as.integer(e2df$Visualization=="c")
+
+# make sure stan doesn't read our data wrong (e.g., in case there are missing subject ids)
+e2df$subject <- as.integer(as.factor(e2df$WorkerID))
+```
+
+### Model Specification
+
+Here we model the probability of a correct response from 0.5 (guessing) to 1 - lapse rate (the maximum estimated performance for each participant) as a function of stimulus intensity using a cumulative Gaussian distribution. This is called the psychometric function. We define the psychometric function and its inverse (i.e., a scaled probit) below. Note that the parameters of the psychometric function are defined in these functions:
+
+* threshold: mean of the cumulative Gaussian in stimulus intensity units,
+* spread: standard deviation (sd) of the cumulative Gaussian in stimulus intensity units,
+* guess rate: the lower bound of the cumulative probability density which is .5 for a two alternative forced choice task with equally likely alternatives
+* lapse rate: the rate of error for an individual due to lapses of attention which are independent of the stimulus
+
+```{r}
+# define the psychometric function (PF) and inverse as a rescaled probit, adding parameters for mean, sd, guess rate, and lapse rate of the PF
+scaledProbit <- function(p,m,sd,guess,lapse){
+  # handle arguments
+  if(missing(guess)) {
+    guess <- .5
+  }
+  if( missing(lapse)) {
+    lapse <- 0    
+  }
+  p <- as.matrix(p)
+  
+  # set upper and lower bounds
+  lowerBound <- guess
+  upperBound <- 1 - lapse
+  
+  # calculate z scores for each value of p
+  z <- sqrt(2) * qnorm((p - lowerBound) / (upperBound - lowerBound)) 
+  
+  # convert z scores to units of intensity
+  intensity <- z * sd + m
+  # place lower bound for stimulus intensity at zero
+  intensity[is.infinite(intensity)] <- 0
+  return(intensity)
+}
+psychometric <- function(intensity,m,sd,guess,lapse){
+  # handle arguments
+  if(missing(guess)) {
+    guess <- .5
+  }
+  if( missing(lapse)) {
+    lapse <- 0    
+  }
+  intensity <- as.matrix(intensity)
+  
+  # set upper and lower bounds
+  lowerBound <- guess
+  upperBound <- 1 - lapse
+  
+  # calculate z score for each level of intensity
+  r <- dim(intensity)[1]
+  c <- dim(intensity)[2]
+  z <- (intensity - m * matrix(1, r, c)) / sd
+  
+  # scale cumulative probability density between upper and lower bound
+  p <- lowerBound + pnorm(z / sqrt(2)) * (upperBound - lowerBound)
+  return(p)
+}
+```
+
+
+Next, we use the scaled probit as our link function in a binomial regression. Here is the specification of the statistical model. Note the following features of the model:
+
+* We are modelling correctness as a binomial distributed outcome with the probability of being correct as a transformed linear model of ratio and visualization condition.
+* We use our scaled probit function (defined above) as the link function for our linear model.
+* The threshold, spread, and lapse rate parameters of the model are estimated for each subject while guess rate is assumed to be .5 based on the design of the experiment.
+* We estimate the effect of each visualization condition via dummy coding and the effect of stimulus intensity (ratio).
+
+The point of this exercise is that all parameters, both at the subject level (psychometric function parameters) and the group level (effects of visualization condition and stimulus intensity), are all estimated from raw data within one unified model.
+
+
+```{r}
+# from Richard McElreath's Statistical Rethinking (http://xcelab.net/rm/statistical-rethinking/)
+e2m <- map2stan(
+  alist(
+    correct ~ dbinom(1,p), # binomial distribution of correctness on each trial
+    scaledProbit(p,threshold[subject],spread[subject],0.5,lapse[subject]) <- a + br*ratio + bh*hops + bf*fast + bl*lines, # likelikehood function w/ scaled probit link
+    threshold[subject] ~ dunif(0,15), # estimate threshold, spread, and lapse parameters of the PF for each subject
+    spread[subject] ~ dcauchy(0,1),
+    lapse[subject] ~ dunif(0,.06),
+    c(a,br,bh,bf,bl) ~ dnorm(0,10) # weak priors for model coefficients
+  ),
+  data = e2df,
+  chains = 4,
+  cores = 2,
+  warmup = 500,
+  iter = 1500
+)
+```
+
+<!-- ### Check Model Perfomance -->
+
+<!-- This kind of Bayesian model samples from a Markov Chain Monte Claro algoritm to estimate each parameter in our model. Here we can see whether the four separate simulations we ran above converged (a sign of reliable estimates) and whether the any the samples from any simulation contain autocorrelation (a sign that out simulation got stuck at a given location in parameter space, and we should run the model fit again and possibly change our model specification or priors). For me this model seemed to run just fine. -->
+
+<!-- ```{r} -->
+<!-- plot(m) -->
+<!-- ``` -->
