@@ -42,47 +42,19 @@ e2data <- list(
 
 ### Model Specification
 
-We model the probability of a correct response from 0.5 (guessing) to 1 - lapse rate (the maximum estimated performance for each participant) as a function of stimulus intensity using a _scaled and shifted cumulative normal distribution_. This is called the *psychometric function*. We define the psychometric function. Note that the parameters of the psychometric function are defined in this function:
+Our statistical model is a variation on *Bayesian hierarchical probit regression*.
+
+We model the probability of a correct response from 0.5 (guessing) to 1 - lapse rate (the maximum estimated performance for each participant) as a function of stimulus intensity using a _scaled and shifted cumulative normal distribution_. This is called the *psychometric function*, and it will be used as the inverse link function in our regression model. Here are the parameters of the psychometric function:
 
 * threshold: mean of the cumulative Gaussian in stimulus intensity units,
 * spread: standard deviation (sd) of the cumulative Gaussian in stimulus intensity units,
 * guess rate: the lower bound of the cumulative probability density which is .5 for a two alternative forced choice task with equally likely alternatives
 * lapse rate: the rate of error for an individual due to lapses of attention which are independent of the stimulus
 
-The following chunk of code specifies the psychometric function. We will use the psychometric function to estimate accuracy as a function of other variables of interest given the fit of our statistical model.
-
-```{r}
-psychometric <- function(intensity,m,sd,guess,lapse){
-  # handle arguments
-  if(missing(guess)) {
-    guess <- .5
-  }
-  if( missing(lapse)) {
-    lapse <- 0
-  }
-  intensity <- as.matrix(intensity)
-
-  # set upper and lower bounds
-  lowerBound <- guess
-  upperBound <- 1 - lapse
-
-  # calculate z score for each level of intensity
-  r <- dim(intensity)[1]
-  c <- dim(intensity)[2]
-  z <- (intensity - m * matrix(1, r, c)) / sd
-
-  # scale cumulative probability density between upper and lower bound
-  p <- lowerBound + pnorm(z / sqrt(2)) * (upperBound - lowerBound)
-  return(p)
-}
-```
-
-Our statistical model is a variation on *Bayesian hierarchical probit regression*.
-
-We use a _scaled and shifted probit as our link function_ in a multi-level binomial regression. Here is the specification of the statistical model. Note the following features of the model:
+Below is the specification of the statistical model. Note the following features of the model:
 
 * We are modelling correctness as a binomial distributed outcome with the probability of being correct as a transformed linear model of ratio and visualization condition.
-* We use our scaled probit function (defined above) as the link function for our linear model.
+* We use a _scaled and shifted probit_ (the inverse of the psychometric function) as the link function for our linear model.
 * The threshold, spread, and lapse rate parameters of the model are estimated for each subject while guess rate is assumed to be .5 based on the design of the experiment.
 * We estimate the effect of each visualization condition via dummy coding and the effect of stimulus intensity (ratio).
 
@@ -110,20 +82,23 @@ parameters {
   real bh;
   real bf;
   real bl; 
-  real<lower=0,upper=1> p[N]; // probability of being correct on each trial
 }
 model {
+  vector[N] p; // probability of being correct on each trial
   threshold ~ uniform(0,15); // threshold, spread, and lapse parameters of the PF
-  spread[subject] ~ cauchy(0,1);
-  lapse[subject] ~ uniform(0,.06);
+  spread ~ cauchy(0,1);
+  lapse ~ uniform(0,.06);
   a ~ normal(0,10); //weak priors for model coefficients
   bi ~ normal(0,10);
   bh ~ normal(0,10);
   bf ~ normal(0,10);
   bl ~ normal(0,10);
   for (i in 1:N) {
-    // scaled and shifted probit link function specific to each subject
-    (threshold[subject[i]] + spread[subject[i]]*(sqrt(2)*inv_Phi(p[i] - 0.5)/(0.5 - lapse[subject[i]]))) <- a + bi*intensity[i] + bh*hops[i] + bf*fast[i] + bl*lines[i];
+    // linear model for effects on perceived stimulus intensity
+    real lm;
+    lm = a + bi*intensity[i] + bh*hops[i] + bf*fast[i] + bl*lines[i];
+    // psychometric function as inverse link function
+    p[i] = (0.5 - lapse[subject[i]])*Phi((lm - threshold[subject[i]])/spread[subject[i]]/sqrt(2)) + 0.5;
   }
   correct ~ binomial(1,p);
 }'
@@ -150,6 +125,9 @@ e2m <- stan(
 <!-- ```{r} -->
 <!-- plot(m) -->
 <!-- ``` -->
+
+
+
 
 
 
@@ -238,7 +216,6 @@ e2m <- stan(
 
 <!-- The point of this exercise is that all parameters, both at the subject level (psychometric function parameters) and the group level (effects of visualization condition and stimulus intensity), are all estimated from raw data within one unified model. -->
 
-
 <!-- ```{r} -->
 <!-- # from Richard McElreath's Statistical Rethinking (http://xcelab.net/rm/statistical-rethinking/) -->
 <!-- e2m <- map2stan( -->
@@ -256,4 +233,34 @@ e2m <- stan(
 <!--   warmup = 500, -->
 <!--   iter = 1500 -->
 <!-- ) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # simpler logistic regression model in Stan -->
+<!-- stanCode <-  -->
+<!-- 'data { -->
+<!--   int<lower=0> N; // number of obs -->
+<!--   int<lower=0> S; // number of subjects -->
+<!--   int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial -->
+<!--   real<lower=0> intensity[N]; // stimulus intensity on each trial -->
+<!--   int<lower=0> subject[N]; //subject index for each observation -->
+<!-- } -->
+<!-- parameters { -->
+<!--   real a; // model coefficients -->
+<!--   real bi; -->
+<!--   vector[S] subj; -->
+<!--   real<lower=0> sigma; -->
+<!-- } -->
+<!-- model { -->
+<!--   vector[N] p; // probability of being correct on each trial -->
+<!--   a ~ normal(0,10); //weak priors for model coefficients -->
+<!--   bi ~ normal(0,10); -->
+<!--   subj ~ normal(0,sigma); -->
+<!--   sigma ~ cauchy(0,1); -->
+<!--   for (i in 1:N) { -->
+<!--     // scaled and shifted probit link function specific to each subject -->
+<!--     p[i] = inv_logit(a + bi*intensity[i] + subj[subject[i]]); -->
+<!--   } -->
+<!--   correct ~ binomial(1,p); -->
+<!-- }' -->
 <!-- ``` -->
