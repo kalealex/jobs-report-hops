@@ -98,7 +98,7 @@ model {
     real lm;
     lm = a + bi*intensity[i] + bh*hops[i] + bf*fast[i] + bl*lines[i];
     // psychometric function as inverse link function
-    p[i] = (0.5 - lapse[subject[i]])*Phi((lm - threshold[subject[i]])/spread[subject[i]]/sqrt(2)) + 0.5;
+    p[i] = (0.5 - lapse[subject[i]])*Phi((lm - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5;
   }
   correct ~ binomial(1,p);
 }'
@@ -107,31 +107,54 @@ model {
 Next we fit the model to our data using Stan.
 
 ```{r}
+# run model 
+# (I used chains = 4, warmup = 500, & iter = 150 when creating the model in my environment.
+# I cut this down to save time during Knit.)
 e2m <- stan(
   model_code = stanCode,
   data = e2data,
-  chains = 4,
+  chains = 2,
   cores = 2,
-  warmup = 500,
-  iter = 1500
+  warmup = 300,
+  iter = 1000
 )
 ```
 
 
-<!-- ### Check Model Perfomance -->
+### Check Model Perfomance
 
-<!-- This kind of Bayesian model samples from a Markov Chain Monte Claro algoritm to estimate each parameter in our model. Here we can see whether the four separate simulations we ran above converged (a sign of reliable estimates) and whether the any the samples from any simulation contain autocorrelation (a sign that out simulation got stuck at a given location in parameter space, and we should run the model fit again and possibly change our model specification or priors). For me this model seemed to run just fine. -->
+This kind of Bayesian model samples from a Markov Chain Monte Claro algoritm to estimate each parameter in our model. Here we can see whether the four separate simulations we ran above converged (a sign of reliable estimates) and whether the any the samples from any simulation contain autocorrelation (a sign that out simulation got stuck at a given location in parameter space, and we should run the model fit again and possibly change our model specification or priors). We check this by looking at a traceplot.
 
-<!-- ```{r} -->
-<!-- plot(m) -->
-<!-- ``` -->
+```{r}
+traceplot(e2m,pars=c('a','bi','bh','bf','bl'))
+```
 
+Here, we just want to see that the simulation is not getting stuck on particular parameter values. This plot looks fine.
 
+Let's also check whether our model had any problems identifying any of our parameters due to highly correltated parameter values. We check this using a pairs plot.
 
+```{r}
+pairs(e2m,pars=c('a','bi','bh','bf','bl'))
+```
 
+This does not look good. We may need to rethink the parameterization of this model in order to tease apart the model coefficients for our three visualization conditions. Currently, our model fit is probably not properly estimating these parameters due to non-identifiability.
 
+### Results
 
+Let's take a look at our parameter estimates.
 
+```{r}
+plot(e2m,pars=c('a','bi','bh','bf','bl'))
+```
+
+We can see here that the point estimates follow the pattern we would expect based on the results of the frequentist model we report in the paper.
+
+* bi: Increasing stimulus intensity increases the perceived level of evidence. This parameter is a good sanity check and it orients us to the meaning of the units for these model coefficients.
+* bh: Regular speed HOPs increase the perceived level of evidence. This is consistent with reduced JNDs.
+* bf: Fast HOPs seem to have a neutral impact on the perceived level of evidence.
+* bl: Line ensembles seem to reduce the perceived level of evidence.
+
+Note that the credibility intervals (CIs) on these estimates are very wide. We should expect that a Bayesian hierarchical model, designed to preserve uncertainty in PF fits at the level of estimating population parameters, will be more conservative and have wider CIs However, this might also reflect problems with identifiability in our model.
 
 <!-- ### OLD Preprocessing -->
 
