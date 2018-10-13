@@ -1,0 +1,49 @@
+---
+title: "BuildingUpTheModel"
+author: "Alex Kale"
+date: "10/12/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# library(rethinking)
+library(rstan)
+library(dplyr)
+```
+
+## Load Raw Data for Experiment 2
+
+These data were collected in a two-alternative forced choice experiement where participants judged stimuli at varying levels of evidence and were either correct or incorrect on each trial. In experiment 2, each participant was assigned to one of three possible uncertainty visualization conditions: regular HOPs, fast HOPs, or line ensembles.
+
+```{r}
+# e1df = read.csv("E1-AnonymousRawData-InferenceSample.csv")
+e2df = read.csv("E2-AnonymousRawData.csv")
+```
+
+## Model for One Participant
+
+### Preprocessing
+
+Filter the data so that we are only looking at one participant. Then reformat the raw data from the experiment as a list, changing types to integers as needed and taking the absolute value of ratio (i.e., stimulus intensity). This step will enable Stan to correctly process the data.
+
+```{r}
+# filter to one participant
+oneSubjDf <- e2df %>%
+
+# format data for model
+e2data <- list(
+  N = length(e2df$Ratio),
+  S = length(unique(e2df$WorkerID)),
+  correct = as.integer(e2df$Correct),
+  intensity = abs(e2df$Ratio),
+  hops = as.integer(e2df$Visualization=="h"),
+  fast = as.integer(e2df$Visualization=="hf"),
+  lines = as.integer(e2df$Visualization=="c"),
+  subject = as.integer(as.factor(e2df$WorkerID))
+)
+```
+
+### Model Specification
+
+
