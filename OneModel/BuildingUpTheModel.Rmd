@@ -9,10 +9,12 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 # library(rethinking)
 library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
 library(dplyr)
 ```
 
-## Load Raw Data for Experiment 2
+#### Load Raw Data for Experiment 2
 
 These data were collected in a two-alternative forced choice experiement where participants judged stimuli at varying levels of evidence and were either correct or incorrect on each trial. In experiment 2, each participant was assigned to one of three possible uncertainty visualization conditions: regular HOPs, fast HOPs, or line ensembles.
 
@@ -23,27 +25,660 @@ e2df = read.csv("E2-AnonymousRawData.csv")
 
 ## Model for One Participant
 
-### Preprocessing
+#### Preprocessing
 
 Filter the data so that we are only looking at one participant. Then reformat the raw data from the experiment as a list, changing types to integers as needed and taking the absolute value of ratio (i.e., stimulus intensity). This step will enable Stan to correctly process the data.
 
 ```{r}
 # filter to one participant
-oneSubjDf <- e2df %>%
+oneSubjDf <- e2df %>% filter(WorkerID %in% e2df$WorkerID[1])
 
+# format data for model
+oneSubjData <- list(
+  N = length(oneSubjDf$Ratio),
+  correct = as.integer(oneSubjDf$Correct),
+  intensity = abs(oneSubjDf$Ratio)
+)
+```
+
+#### Model Specification
+
+We specify the model to fit the psychometric function for one participant.
+
+```{r}
+# model specification in Stan
+stanCode <- 
+'data {
+  int<lower=0> N; // number of obs
+  int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial
+  real<lower=0> intensity[N]; // stimulus intensity on each trial
+}
+parameters {
+  real<lower=0> threshold; // estimate threshold, spread, and lapse parameters of the PF for each subject
+  real<lower=0> spread;
+  real<lower=0,upper=1> lapse;
+}
+model {
+  vector[N] p; // probability of being correct on each trial
+  threshold ~ normal(0,2); // priors for PF parameters
+  spread ~ cauchy(0,2);
+  lapse ~ beta(0.05*50,(1 - 0.05)*50);
+  for (i in 1:N) {
+    // psychometric function as inverse link function
+    p[i] = (0.5 - lapse)*Phi((intensity[i] - threshold)/spread/sqrt(2.0)) + 0.5;
+  }
+  correct ~ binomial(1,p);
+}'
+```
+
+Next we fit the model to our data using Stan.
+
+```{r}
+# run model 
+oneSubjMdl <- stan(
+  model_code = stanCode,
+  data = oneSubjData,
+  chains = 1,
+  cores = 2,
+  warmup = 500,
+  iter = 1500,
+  control = list(adapt_delta = 0.99,max_treedepth = 15)
+)
+```
+
+#### Check Model Perfomance
+
+We check for sampling issues by looking at a traceplot.
+
+```{r}
+traceplot(oneSubjMdl,pars=c('threshold','spread','lapse'))
+```
+
+Here, we just want to see that the simulation is not getting stuck on particular parameter values.
+
+Let's also check for highly correltated parameter values which would indicate problems with identifiability. We check this using a pairs plot.
+
+```{r}
+pairs(oneSubjMdl,pars=c('threshold','spread','lapse'))
+```
+
+Let's look at the summary, paying special attention to the Rhat which should be very close to 1, and N_eff which should be within two orders of magnitude of the number of non-warmup iterations.
+
+```{r}
+# get and print model summary
+oneSubjMdlSummary <- summary(oneSubjMdl)
+print(oneSubjMdlSummary$summary)
+```
+
+#### Results
+
+Let's take a look at our parameter estimates.
+
+```{r}
+plot(oneSubjMdl,pars=c('threshold','spread','lapse'))
+```
+
+## Model for All Participants in HOPs Condition
+
+### No Hierarchy
+
+We'll start by adding in variable PF parameters across subjects, without adding heirarchy to the model by estimating hyperparameters.
+
+#### Preprocessing
+
+Filter the data so that we are only looking at one condition Then reformat the raw data from the experiment as a list, changing types to integers as needed and taking the absolute value of ratio (i.e., stimulus intensity). This step will enable Stan to correctly process the data.
+
+```{r}
+# filter to one participant
+oneCondDf <- e2df %>% filter(Visualization %in% 'h')
+# refactor subject codes
+oneCondDf$WorkerID <- factor(oneCondDf$WorkerID)
+
+# format data for model
+oneCondData <- list(
+  N = length(oneCondDf$Ratio),
+  S = length(unique(oneCondDf$WorkerID)),
+  correct = as.integer(oneCondDf$Correct),
+  intensity = abs(oneCondDf$Ratio),
+  subject = as.integer(as.factor(oneCondDf$WorkerID))
+)
+```
+
+#### Model Specification
+
+We specify the model to fit the psychometric function for multiple participants.
+
+```{r}
+# model specification in Stan
+stanCode <- 
+'data {
+  int<lower=0> N; // number of obs
+  int<lower=0> S; // number of subjects
+  int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial
+  real<lower=0> intensity[N]; // stimulus intensity on each trial
+  int<lower=0> subject[N]; //subject index for each observation
+}
+parameters {
+  real<lower=0> threshold[S]; // estimate threshold, spread, and lapse parameters of the PF for each subject
+  real<lower=0> spread[S];
+  real<lower=0,upper=1> lapse[S];
+}
+model {
+  vector[N] p; // probability of being correct on each trial
+  threshold ~ normal(0,2); // priors for PF parameters
+  spread ~ cauchy(0,2);
+  lapse ~ beta(0.05*50,(1 - 0.05)*50);
+  for (i in 1:N) {
+    // psychometric function as inverse link function
+    p[i] = (0.5 - lapse[subject[i]])*Phi((intensity[i] - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5;
+  }
+  correct ~ binomial(1,p);
+}'
+```
+
+Next we fit the model to our data using Stan.
+
+```{r}
+# run model 
+oneCondMdl <- stan(
+  model_code = stanCode,
+  data = oneCondData,
+  chains = 1,
+  cores = 2,
+  warmup = 500,
+  iter = 1500,
+  control = list(adapt_delta = 0.99,max_treedepth = 15)
+)
+```
+
+#### Check Model Perfomance
+
+We check for sampling issues by looking at a traceplot.
+
+```{r}
+traceplot(oneCondMdl,pars=c('threshold[1]','spread[1]','lapse[1]','threshold[2]','spread[2]','lapse[2]','threshold[3]','spread[3]','lapse[3]'))
+```
+
+Here, we just want to see that the simulation is not getting stuck on particular parameter values.
+
+Let's also check for highly correltated parameter values which would indicate problems with identifiability. We check this using a pairs plot.
+
+```{r}
+pairs(oneCondMdl,pars=c('threshold[1]','spread[1]','lapse[1]','threshold[2]','spread[2]','lapse[2]','threshold[3]','spread[3]','lapse[3]'))
+```
+
+Let's look at the summary, paying special attention to the Rhat which should be very close to 1, and N_eff which should be within two orders of magnitude of the number of non-warmup iterations.
+
+```{r}
+# get and print model summary
+oneCondMdlSummary <- summary(oneCondMdl)
+print(oneCondMdlSummary$summary)
+```
+
+#### Results
+
+Let's take a look at our parameter estimates.
+
+```{r}
+plot(oneCondMdl,pars=c('threshold[1]','spread[1]','lapse[1]','threshold[2]','spread[2]','lapse[2]','threshold[3]','spread[3]','lapse[3]'))
+```
+
+### Add Hierarchy to Model for PF Thresholds Only
+
+Next we add hierarchy to the model by estimating hyperparmeters for the population mean and standard deviation of PF thresholds (i.e., JNDs). This added model complexity requires us to switch to non-centered parameterization for thresholds.
+
+#### Model Specification
+
+We specify the model to fit the psychometric function for multiple participants, estimating population hyperparameters for thresholds.
+
+```{r}
+# model specification in Stan
+stanCode <- 
+'data {
+  int<lower=0> N; // number of obs
+  int<lower=0> S; // number of subjects
+  int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial
+  real<lower=0> intensity[N]; // stimulus intensity on each trial
+  int<lower=0> subject[N]; //subject index for each observation
+}
+parameters {
+  // spread and lapse parameters of the PF for each subject
+  real<lower=0> spread[S];
+  real<lower=0,upper=1> lapse[S];
+  // hyperparameters for threshold
+  real<lower=0> mu_threshold; 
+  real<lower=0> sigma_threshold;
+  // for non-centered parameterization of threshold
+  vector[S] threshold_zoffset;
+}
+transformed parameters {
+  // non-centered parameterization of threshold
+  vector<lower=0>[S] threshold;
+  threshold = mu_threshold + threshold_zoffset*sigma_threshold;
+}
+model {
+  vector[N] p; // probability of being correct on each trial
+  threshold_zoffset ~ normal(0,1); // priors for PF parameters
+  spread ~ cauchy(0,2);
+  lapse ~ beta(0.05*50,(1 - 0.05)*50);
+  mu_threshold ~ normal(0,2); // priors for hyperparameters
+  sigma_threshold ~ cauchy(0,2);
+  for (i in 1:N) {
+    // psychometric function as inverse link function
+    p[i] = (0.5 - lapse[subject[i]])*Phi((intensity[i] - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5;
+  }
+  correct ~ binomial(1,p);
+}'
+```
+
+Next we fit the model to our data using Stan.
+
+```{r}
+# run model 
+oneCondMdl_thresholdHier <- stan(
+  model_code = stanCode,
+  data = oneCondData,
+  chains = 1,
+  cores = 2,
+  warmup = 500,
+  iter = 1500,
+  control = list(adapt_delta = 0.99,max_treedepth = 15)
+)
+```
+
+#### Check Model Perfomance
+
+We check for sampling issues by looking at a traceplot.
+
+```{r}
+traceplot(oneCondMdl_thresholdHier,pars=c('mu_threshold','sigma_threshold','threshold[1]','spread[1]','lapse[1]','threshold[2]','spread[2]','lapse[2]'))
+```
+
+Here, we just want to see that the simulation is not getting stuck on particular parameter values.
+
+Let's also check for highly correltated parameter values which would indicate problems with identifiability. We check this using a pairs plot.
+
+```{r}
+pairs(oneCondMdl_thresholdHier,pars=c('mu_threshold','sigma_threshold','xo_spread','gamma_spread','mu_lapse','precision_lapse','threshold[1]','spread[1]','lapse[1]'))
+```
+
+Let's look at the summary, paying special attention to the Rhat which should be very close to 1, and N_eff which should be within two orders of magnitude of the number of non-warmup iterations.
+
+```{r}
+# get and print model summary
+oneCondMdl_thresholdHierSummary <- summary(oneCondMdl_thresholdHier)
+print(oneCondMdl_thresholdHierSummary$summary)
+```
+
+#### Results
+
+Let's take a look at our parameter estimates.
+
+```{r}
+plot(oneCondMdl_thresholdHeir,pars=c('mu_threshold','sigma_threshold','threshold[1]','spread[1]','lapse[1]','threshold[2]','spread[2]','lapse[2]'))
+```
+
+### Add Hierarchy to Model for All PF Parameters
+
+Next we extend the hierarchy introduced in the previous model by estimating hyperparmeters for the population mean and standard deviation of PF thresholds, spreads, and lapse rates. This added model complexity requires us to switch to non-centered parameterization for all PF parameters. To do this we set priors for both the mean and standard deviation each PF parameter in transformed units so that Stan can sample from a minimally constrained parameter space while still producing valid estimates.
+
+#### Model Specification
+
+We specify the model to fit the psychometric function (PF) for multiple participants, estimating population hyperparameters for each PF parameter (i.e., threshold, spread, and lapse rate).
+
+```{r}
+# model specification in Stan
+stanCode <-
+'data {
+  int<lower=0> N; // number of obs
+  int<lower=0> S; // number of subjects
+  int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial
+  real<lower=0> intensity[N]; // stimulus intensity on each trial
+  int<lower=0> subject[N]; //subject index for each observation
+}
+parameters {
+  // hyperparameters for threshold, spread, and lapse
+  real mu_log_threshold;
+  real<lower=0> sigma_log_threshold;
+  real mu_log_spread;
+  real<lower=0> sigma_log_spread;
+  real mu_logit_lapse;
+  real<lower=0> sigma_logit_lapse;
+  // for non-centered parameterization
+  vector[S] threshold_zoffset;
+  vector[S] spread_zoffset;
+  vector[S] lapse_zoffset;
+}
+transformed parameters {
+  // non-centered parameterization of threshold, spread, and lapse parameters of the PF for each subject
+  vector<lower=0>[S] threshold;
+  vector<lower=0>[S] spread;
+  vector<lower=0,upper=1>[S] lapse;
+  threshold = exp(mu_log_threshold + threshold_zoffset*sigma_log_threshold); // threshold ~ normal(mu_threshold,sigma_threshold)
+  spread = exp(mu_log_spread + spread_zoffset*sigma_log_spread);             // spread ~ normal_l(mu_spread,sigma_spread)
+  lapse = inv_logit(mu_logit_lapse + lapse_zoffset*sigma_logit_lapse);       // lapse ~ inv_logit(normal(mu_logit_lapse,sigma_logit_lapse))
+}
+model {
+  vector[N] p; // probability of being correct on each trial
+  threshold_zoffset ~ normal(0,1); // priors for offsets per subject for non-centered parameterization of PF
+  spread_zoffset ~ normal(0,1);
+  lapse_zoffset ~ normal(0,1);
+  mu_log_threshold ~ normal(0,2); // priors for hyperparameters
+  sigma_log_threshold ~ cauchy(0,1);
+  mu_log_spread ~ normal(0,2);
+  sigma_log_spread ~ cauchy(0,1);
+  mu_logit_lapse ~ normal(log(0.05/(1 - 0.05)),fabs(log(0.196/(1 - 0.196)))); // centered on logit(0.05)
+  sigma_logit_lapse ~ gamma(2,2);
+  // sigma_logit_lapse ~ exponential(3);
+  for (i in 1:N) {
+    // psychometric function as inverse link function
+    p[i] = (0.5 - lapse[subject[i]])*Phi((intensity[i] - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5;
+  }
+  correct ~ binomial(1,p);
+}'
+
+# # get hierarchy working for spreads
+# stanCode <-
+# 'data {
+#   int<lower=0> N; // number of obs
+#   int<lower=0> S; // number of subjects
+#   int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial
+#   real<lower=0> intensity[N]; // stimulus intensity on each trial
+#   int<lower=0> subject[N]; //subject index for each observation
+# }
+# parameters {
+#   // hyperparameters for threshold, spread, and lapse
+#   real<lower=0> mu_threshold;
+#   real<lower=0> sigma_threshold;
+#   real<lower=0> mu_log_spread;
+#   real<lower=0> sigma_log_spread;
+#   // real<lower=0> tau_spread;
+#   // for non-centered parameterization
+#   vector[S] threshold_zoffset;
+#   vector[S] spread_zoffset;
+#   // vector<lower=-pi()/2,upper=pi()/2>[S] spread_unifoffset;
+#   // model lapse as before
+#   real<lower=0,upper=1> lapse[S];
+# }
+# transformed parameters {
+#   // non-centered parameterization of threshold, spread, and lapse parameters of the PF for each subject
+#   vector<lower=0>[S] threshold;
+#   vector<lower=0>[S] spread;
+#   threshold = mu_threshold + threshold_zoffset*sigma_threshold;   // threshold ~ normal(mu_threshold,sigma_threshold)
+#   spread = exp(mu_log_spread + spread_zoffset*sigma_log_spread);          // spread ~ normal_l(mu_spread,sigma_spread)
+#   // spread = mu_spread + tan(spread_unifoffset)*tau_spread;         // spread ~ cauchy(mu_spread,tau_spread)
+# }
+# model {
+#   vector[N] p; // probability of being correct on each trial
+#   threshold_zoffset ~ normal(0,1); // priors for offsets per subject for non-centered parameterization of PF
+#   spread_zoffset ~ normal(0,1);
+#   // spread_unifoffset ~ uniform(-pi()/2,pi()/2);
+#   lapse ~ beta(0.05*50,(1 - 0.05)*50); // model lapse as before
+#   mu_threshold ~ normal(0,2); // priors for hyperparameters
+#   sigma_threshold ~ cauchy(0,2);
+#   mu_log_spread ~ normal(0,2);
+#   sigma_log_spread ~ cauchy(0,2);
+#   // tau_spread ~ cauchy(0,2);
+#   for (i in 1:N) {
+#     // psychometric function as inverse link function
+#     p[i] = (0.5 - lapse[subject[i]])*Phi((intensity[i] - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5;
+#   }
+#   correct ~ binomial(1,p);
+# }'
+```
+
+Next we fit the model to our data using Stan.
+
+```{r}
+# run model 
+oneCondMdl_Hier <- stan(
+  model_code = stanCode,
+  data = oneCondData,
+  chains = 1,
+  cores = 2,
+  warmup = 500,
+  iter = 1500,
+  control = list(adapt_delta = 0.99,max_treedepth = 15)
+)
+# oneCondMdl_spreadHier <- stan(
+#   model_code = stanCode,
+#   data = oneCondData,
+#   chains = 1,
+#   cores = 2,
+#   warmup = 500,
+#   iter = 1500,
+#   control = list(adapt_delta = 0.99,max_treedepth = 15)
+# )
+```
+
+#### Check Model Perfomance
+
+We check for sampling issues by looking at a traceplot.
+
+```{r}
+traceplot(oneCondMdl_Hier,pars=c('mu_log_threshold','sigma_log_threshold','mu_log_spread','sigma_log_spread','mu_logit_lapse','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+```
+
+Here, we just want to see that the simulation is not getting stuck on particular parameter values.
+
+Let's also check for highly correltated parameter values which would indicate problems with identifiability. We check this using a pairs plot.
+
+```{r}
+pairs(oneCondMdl_Hier,pars=c('mu_log_threshold','sigma_log_threshold','mu_log_spread','sigma_log_spread','mu_logit_lapse','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+```
+
+Let's look at the summary, paying special attention to the Rhat which should be very close to 1, and N_eff which should be within two orders of magnitude of the number of non-warmup iterations.
+
+```{r}
+# get and print model summary
+oneCondMdl_HierSummary <- summary(oneCondMdl_Hier)
+print(oneCondMdl_HierSummary$summary)
+```
+
+#### Results
+
+Let's take a look at our parameter estimates.
+
+```{r}
+plot(oneCondHierMdl,pars==c('mu_log_threshold','sigma_log_threshold','mu_log_spread','sigma_log_spread','mu_logit_lapse','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]','threshold[2]','spread[2]','lapse[2]','threshold[3]','spread[3]','lapse[3]'))
+```
+
+### Capture Shared Variation in PF Parameters By Using a Multivariate Normal Prior for PF Parameters 
+
+We want our model to be able to use the shared variation in PF thresholds, spreads, and lapse rates to improve estimates of effects at the population level. In order to do this, we have to tell our model how to incorpate the PF parameters into a multivariate distribution using a shared prior. We use Cholesky factorization for this multivariate normal prior in order to speed things up.
+
+#### Model Specification
+
+We specify the model to fit the psychometric function (PF) for multiple participants, estimating a shared distribution of population hyperparameters for each PF parameter (i.e., threshold, spread, and lapse rate).
+
+```{r}
+# model specification in Stan
+stanCode <-
+'data {
+  int<lower=0> N; // number of obs
+  int<lower=0> S; // number of subjects
+  int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial
+  real<lower=0> intensity[N]; // stimulus intensity on each trial
+  int<lower=0> subject[N]; //subject index for each observation
+}
+parameters {
+  // hyperparameters for threshold, spread, and lapse
+  vector[3] mu;
+  cholesky_factor_corr[3] Lcorr;  
+  vector<lower=0>[3] sigma;
+  vector[3] transformed_pf_params;
+}
+transformed parameters {
+  // Cholesky factorization of transformed threshold, spread, and lapse parameters of the PF for each subject
+  vector<lower=0>[S] threshold;
+  vector<lower=0>[S] spread;
+  vector<lower=0,upper=1>[S] lapse;
+  threshold = exp(transformed_pf_params[1]); 
+  spread = exp(transformed_pf_params[2]);
+  lapse = inv_logit(transformed_pf_params[3]);
+}
+model {
+  vector[N] p; // probability of being correct on each trial
+  mu ~ normal(0,2); // priors for hyperparameters
+  sigma ~ cauchy(0,2);
+  Lcorr ~ lkj_corr_cholesky(1);
+  transformed_pf_params ~ multi_normal_cholesky(mu,diag_pre_multiply(sigma, Lcorr));
+  for (i in 1:N) {
+    // psychometric function as inverse link function
+    p[i] = (0.5 - lapse[subject[i]])*Phi((intensity[i] - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5;
+  }
+  correct ~ binomial(1,p);
+}'
+```
+
+^ I don't have this quite right yet.
+
+Next we fit the model to our data using Stan.
+
+```{r}
+# run model 
+oneCondMdl_MultiHier <- stan(
+  model_code = stanCode,
+  data = oneCondData,
+  chains = 1,
+  cores = 2,
+  warmup = 500,
+  iter = 1500,
+  control = list(adapt_delta = 0.99,max_treedepth = 15)
+)
+```
+
+#### Check Model Perfomance
+
+
+#### Results
+
+## One Model for PF Fitting and Estimating the Effects of Visualization Conditions
+
+We extend our working heirarchical model by adding in submodels for the population level effects of visualization conditions.
+
+```{r}
 # format data for model
 e2data <- list(
   N = length(e2df$Ratio),
   S = length(unique(e2df$WorkerID)),
   correct = as.integer(e2df$Correct),
   intensity = abs(e2df$Ratio),
-  hops = as.integer(e2df$Visualization=="h"),
-  fast = as.integer(e2df$Visualization=="hf"),
-  lines = as.integer(e2df$Visualization=="c"),
   subject = as.integer(as.factor(e2df$WorkerID))
+)
+
+# add list conditions per subject
+condIdx <- c(1, 2, 3)
+e2data$condition <- array(data=0,dim=e2data$S)
+for (i in 1:e2data$S) {
+  if (e2data$condition[i]==0) {
+    e2data$condition[i] <- condInd[e2df$Visualization[e2data$subject==i][1]==c("c","h","hf")]
+  }
+}
+```
+
+#### Model Specification
+
+We specify the model to fit the psychometric function (PF) for multiple participants, estimating population hyperparameters for each PF parameter (i.e., threshold, spread, and lapse rate) as well as impacts of visualization conditions on each PF parameter.
+
+```{r}
+# model specification in Stan
+stanCode <-
+'data {
+  int<lower=0> N; // number of obs
+  int<lower=0> S; // number of subjects
+  int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial
+  real<lower=0> intensity[N]; // stimulus intensity on each trial
+  int<lower=0> subject[N]; //subject index for each observation
+  int<lower=1,upper=3> condition[S]; // visualization condition for each subject 
+}
+parameters {
+  // hyperparameters for sigma of threshold, spread, and lapse
+  real<lower=0> sigma_log_threshold;
+  real<lower=0> sigma_log_spread;
+  real<lower=0> sigma_logit_lapse;
+  // effects of visualization conditions (transformed means per condition for threshold, spread, and lapse)
+  vector[3] b_threshold;
+  vector[3] b_spread;
+  vector[3] b_lapse;
+  // for non-centered parameterization
+  vector[S] threshold_zoffset;
+  vector[S] spread_zoffset;
+  vector[S] lapse_zoffset;
+}
+transformed parameters {
+  // non-centered parameterization of threshold, spread, and lapse parameters of the PF for each subject
+  vector<lower=0>[S] threshold;
+  vector<lower=0>[S] spread;
+  vector<lower=0,upper=1>[S] lapse;
+  threshold = exp(b_threshold[condition] + threshold_zoffset*sigma_log_threshold);
+  spread = exp(b_spread[condition] + spread_zoffset*sigma_log_spread);     
+  lapse = inv_logit(b_lapse[condition] + lapse_zoffset*sigma_logit_lapse);
+}
+model {
+  vector[N] p; // probability of being correct on each trial
+  threshold_zoffset ~ normal(0,1); // priors for offsets per subject for non-centered parameterization of PF
+  spread_zoffset ~ normal(0,1);
+  lapse_zoffset ~ normal(0,1);
+  sigma_log_threshold ~ cauchy(0,1); // priors for hyperparameters
+  sigma_log_spread ~ cauchy(0,1);
+  sigma_logit_lapse ~ gamma(2,2);
+  b_threshold ~ normal(0,2); // priors for visualization effects
+  b_spread ~ normal(0,2);
+  b_lapse ~ normal(log(0.05/(1 - 0.05)),fabs(log(0.196/(1 - 0.196)))); // centered on logit(0.05)
+  // sigma_logit_lapse ~ exponential(3);
+  for (i in 1:N) {
+    // psychometric function as inverse link function
+    p[i] = (0.5 - lapse[subject[i]])*Phi((intensity[i] - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5;
+  }
+  correct ~ binomial(1,p);
+}'
+```
+
+Next we fit the model to our data using Stan.
+
+```{r}
+# run model 
+oneMdl <- stan(
+  model_code = stanCode,
+  data = e2data,
+  chains = 1,
+  cores = 2,
+  warmup = 500,
+  iter = 1500,
+  control = list(adapt_delta = 0.99,max_treedepth = 15)
 )
 ```
 
-### Model Specification
+#### Check Model Perfomance
 
+We check for sampling issues by looking at a traceplot.
+
+```{r}
+traceplot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','mu_log_threshold','sigma_log_threshold','mu_log_spread','sigma_log_spread','mu_logit_lapse','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+```
+
+Here, we just want to see that the simulation is not getting stuck on particular parameter values.
+
+Let's also check for highly correltated parameter values which would indicate problems with identifiability. We check this using a pairs plot.
+
+```{r}
+pairs(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','mu_log_threshold','sigma_log_threshold','mu_log_spread','sigma_log_spread','mu_logit_lapse','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+```
+
+Let's look at the summary, paying special attention to the Rhat which should be very close to 1, and N_eff which should be within two orders of magnitude of the number of non-warmup iterations.
+
+```{r}
+# get and print model summary
+oneMdlSummary <- summary(oneMdl)
+print(oneMdlSummary$summary)
+```
+
+#### Results
+
+Let's take a look at our parameter estimates.
+
+```{r}
+plot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','mu_log_threshold','sigma_log_threshold','mu_log_spread','sigma_log_spread','mu_logit_lapse','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+```
 
