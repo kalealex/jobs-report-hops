@@ -550,7 +550,6 @@ oneCondMdl_MultiHier <- stan(
 
 #### Check Model Perfomance
 
-
 #### Results
 
 ## One Model for PF Fitting and Estimating the Effects of Visualization Conditions
@@ -655,7 +654,7 @@ oneMdl <- stan(
 We check for sampling issues by looking at a traceplot.
 
 ```{r}
-traceplot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','mu_log_threshold','sigma_log_threshold','mu_log_spread','sigma_log_spread','mu_logit_lapse','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+traceplot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
 ```
 
 Here, we just want to see that the simulation is not getting stuck on particular parameter values.
@@ -663,7 +662,7 @@ Here, we just want to see that the simulation is not getting stuck on particular
 Let's also check for highly correltated parameter values which would indicate problems with identifiability. We check this using a pairs plot.
 
 ```{r}
-pairs(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','mu_log_threshold','sigma_log_threshold','mu_log_spread','sigma_log_spread','mu_logit_lapse','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+pairs(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
 ```
 
 Let's look at the summary, paying special attention to the Rhat which should be very close to 1, and N_eff which should be within two orders of magnitude of the number of non-warmup iterations.
@@ -679,6 +678,6 @@ print(oneMdlSummary$summary)
 Let's take a look at our parameter estimates.
 
 ```{r}
-plot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','mu_log_threshold','sigma_log_threshold','mu_log_spread','sigma_log_spread','mu_logit_lapse','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+plot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
 ```
 

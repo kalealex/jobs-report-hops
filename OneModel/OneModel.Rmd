@@ -9,6 +9,12 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 # library(rethinking)
 library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+library(tidyverse)
+library(tidybayes)
+library(magrittr)
+library(modelr)
 ```
 
 ## Experiment 2
@@ -27,16 +33,12 @@ e2df = read.csv("E2-AnonymousRawData.csv")
 Reformat the raw data from the experiment as a list, changing types to integers as needed and taking the absolute value of ratio (i.e., stimulus intensity). This step will enable Stan to correctly process the data.
 
 ```{r}
-# format data for model
-e2data <- list(
-  N = length(e2df$Ratio),
-  S = length(unique(e2df$WorkerID)),
-  correct = as.integer(e2df$Correct),
-  intensity = abs(e2df$Ratio),
-  hops = as.integer(e2df$Visualization=="h"),
-  fast = as.integer(e2df$Visualization=="hf"),
-  lines = as.integer(e2df$Visualization=="c"),
-  subject = as.integer(as.factor(e2df$WorkerID))
+# prepare data for model
+useData <-data_frame(
+  "correct" = as.integer(e2df$Correct),
+  "intensity" = abs(e2df$Ratio),
+ "condition" = as.factor(e2df$Visualization),
+ "subject" = as.factor(as.integer(as.factor(e2df$WorkerID)))
 )
 ```
 
@@ -51,92 +53,151 @@ We model the probability of a correct response from 0.5 (guessing) to 1 - lapse 
 * guess rate: the lower bound of the cumulative probability density which is .5 for a two alternative forced choice task with equally likely alternatives
 * lapse rate: the rate of error for an individual due to lapses of attention which are independent of the stimulus
 
+We define the psychometric function in R so that we can use it in postprocessing.
+
+```{r}
+psychometricM <- function(intensity,m,sd,guess,lapse){
+  # handle arguments
+  if(missing(guess)) {
+    guess <- .5
+  }
+  if( missing(lapse)) {
+    lapse <- 0
+  }
+
+  # set upper and lower bounds
+  lowerBound <- guess
+  upperBound <- 1 - lapse
+
+  # calculate z score for each level of intensity
+  z <- drop(outer(intensity, m, `-`) / rep(sd, each = nrow(outer(intensity,post$threshold[post$subject==i],`-`))))
+
+  # scale cumulative probability density between upper and lower bound
+  p <- lowerBound + pnorm(z / sqrt(2)) * (upperBound - lowerBound)
+  return(p)
+}
+# psychometric <- function(intensity,m,sd,guess,lapse){
+#   # handle arguments
+#   if(missing(guess)) {
+#     guess <- .5
+#   }
+#   if( missing(lapse)) {
+#     lapse <- 0
+#   }
+#   intensity <- as.matrix(intensity)
+# 
+#   # set upper and lower bounds
+#   lowerBound <- guess
+#   upperBound <- 1 - lapse
+# 
+#   # calculate z score for each level of intensity
+#   r <- dim(intensity)[1]
+#   c <- dim(intensity)[2]
+#   z <- (intensity - m * matrix(1, r, c)) / sd
+# 
+#   # scale cumulative probability density between upper and lower bound
+#   p <- lowerBound + pnorm(z / sqrt(2)) * (upperBound - lowerBound)
+#   return(p)
+# }
+```
+
 Below is the specification of the statistical model. Note the following features of the model:
 
 * We are modelling correctness as a binomial distributed outcome with the probability of being correct as a transformed linear model of ratio and visualization condition.
 * We use a _scaled and shifted probit_ (the inverse of the psychometric function) as the link function for our linear model.
 * The threshold, spread, and lapse rate parameters of the model are estimated for each subject while guess rate is assumed to be .5 based on the design of the experiment.
-* We estimate the effect of each visualization condition via dummy coding and the effect of stimulus intensity (ratio).
+* We estimate the effect of each visualization condition via dummy coding.
 
-The point of this exercise is that all parameters, both at the subject level (psychometric function parameters) and the group level (effects of visualization condition and stimulus intensity), are all estimated from raw data within one unified model.
+The point of this exercise is that all parameters, both at the subject level (psychometric function parameters) and the group level (effects of visualization condition), are all estimated from raw data within one unified model.
 
 ```{r}
 # model specification in Stan
-stanCode <- 
+stanCode <-
 'data {
   int<lower=0> N; // number of obs
-  int<lower=0> S; // number of subjects
+  int<lower=0> N_subject; // number of subjects
+  int<lower=0> N_condition; // number of visualization conditions
   int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial
   real<lower=0> intensity[N]; // stimulus intensity on each trial
-  int<lower=0,upper=1> hops[N]; // dummy code for regular speed HOPs
-  int<lower=0,upper=1> fast[N]; // dummy code for fast HOPs
-  int<lower=0,upper=1> lines[N]; // dummy code for line ensembles
   int<lower=0> subject[N]; //subject index for each observation
+  int<lower=1,upper=N_condition> condition[N_subject]; // visualization condition for each subject 
 }
 parameters {
-  real<lower=0> threshold[S]; // estimate threshold, spread, and lapse parameters of the PF for each subject
-  real<lower=0> spread[S];
-  real<lower=0,upper=0.2> lapse[S];
-  real bi; // model coefficients
-  real bh;
-  real bf;
-  real bl;
-//  real<lower=0> mu; // hyperparameters for population JNDs
-//  real<lower=0> sigma;
+  // hyperparameters for sigma of threshold, spread, and lapse
+  real<lower=0> sigma_log_threshold;
+  real<lower=0> sigma_log_spread;
+  real<lower=0> sigma_logit_lapse;
+  // effects of visualization conditions (transformed means per condition for threshold, spread, and lapse)
+  vector[N_condition] b_threshold;
+  vector[N_condition] b_spread;
+  vector[N_condition] b_lapse;
+  // for non-centered parameterization
+  vector[N_subject] threshold_zoffset;
+  vector[N_subject] spread_zoffset;
+  vector[N_subject] lapse_zoffset;
+}
+transformed parameters {
+  // non-centered parameterization of threshold, spread, and lapse parameters of the PF for each subject
+  vector<lower=0>[N_subject] threshold;
+  vector<lower=0>[N_subject] spread;
+  vector<lower=0,upper=1>[N_subject] lapse;
+  threshold = exp(b_threshold[condition] + threshold_zoffset*sigma_log_threshold);
+  spread = exp(b_spread[condition] + spread_zoffset*sigma_log_spread);     
+  lapse = inv_logit(b_lapse[condition] + lapse_zoffset*sigma_logit_lapse);
 }
 model {
   vector[N] p; // probability of being correct on each trial
-  threshold ~ normal(0,2); // priors for PF parameters
-//  threshold ~ normal(mu,sigma); // priors for PF parameters
-  spread ~ cauchy(0,2);
-  lapse ~ beta(0.026,0.500); // mean = 0.05; 95% interval = 0.1
-  bi ~ normal(0,2); // mildly informative priors for model coefficients
-  bh ~ normal(0,2);
-  bf ~ normal(0,2);
-  bl ~ normal(0,2);
-//  mu ~ normal(0,5); // weak priors for threshold
-//  sigma ~ cauchy(0,2);
+  threshold_zoffset ~ normal(0,1); // priors for offsets per subject for non-centered parameterization of PF
+  spread_zoffset ~ normal(0,1);
+  lapse_zoffset ~ normal(0,1);
+  sigma_log_threshold ~ cauchy(0,1); // priors for hyperparameters
+  sigma_log_spread ~ cauchy(0,1);
+  sigma_logit_lapse ~ gamma(2,2);
+  b_threshold ~ normal(0,2); // priors for visualization effects
+  b_spread ~ normal(0,2);
+  b_lapse ~ normal(log(0.05/(1 - 0.05)),fabs(log(0.196/(1 - 0.196)))); // centered on logit(0.05)
+  // sigma_logit_lapse ~ exponential(3);
   for (i in 1:N) {
-    // linear model for effects on perceived stimulus intensity
-    real lm;
-    lm = bi*intensity[i] + bh*hops[i] + bf*fast[i] + bl*lines[i];
     // psychometric function as inverse link function
-    p[i] = (0.5 - lapse[subject[i]])*Phi((lm - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5;
+    p[i] = (0.5 - lapse[subject[i]])*Phi((intensity[i] - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5;
   }
   correct ~ binomial(1,p);
 }'
+
+# convert to model
+mdlSpec <- stan_model(model_code = stanCode)
 ```
 
 Next we fit the model to our data using Stan.
 
 ```{r}
 # run model 
-e2m <- stan(
-  model_code = stanCode,
-  data = e2data,
+mdl = sampling(
+  mdlSpec, 
+  data = compose_data(useData,condition = x_at_y(condition, subject),.n_name = n_prefix("N")),
   chains = 2,
   cores = 2,
-  warmup = 500,
-  iter = 1500,
-  control = list(adapt_delta = 0.99,max_treedepth = 15)
+  warmup = 1000,
+  iter = 2000,
+  control = list(adapt_delta=0.99,max_treedepth = 15)
 )
-# e2m <- stan(
+# oneMdl <- stan(
 #   model_code = stanCode,
 #   data = e2data,
-#   chains = 2,
+#   chains = 1,
 #   cores = 2,
-#   warmup = 300,
-#   iter = 1000
+#   warmup = 500,
+#   iter = 1500,
+#   control = list(adapt_delta = 0.99,max_treedepth = 15)
 # )
 ```
-
 
 ### Check Model Perfomance
 
 This kind of Bayesian model samples from a Markov Chain Monte Claro algoritm to estimate each parameter in our model. Here we can see whether the four separate simulations we ran above converged (a sign of reliable estimates) and whether the any the samples from any simulation contain autocorrelation (a sign that out simulation got stuck at a given location in parameter space, and we should run the model fit again and possibly change our model specification or priors). We check this by looking at a traceplot.
 
 ```{r}
-traceplot(e2m,pars=c('bi','bh','bf','bl'))
+traceplot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
 ```
 
 Here, we just want to see that the simulation is not getting stuck on particular parameter values.
@@ -144,27 +205,105 @@ Here, we just want to see that the simulation is not getting stuck on particular
 Let's also check whether our model had any problems identifying any of our parameters due to highly correltated parameter values. We check this using a pairs plot.
 
 ```{r}
-pairs(e2m,pars=c('bi','bh','bf','bl'))
+pairs(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
 ```
 
 Too much correlation between posterior samples would here would indicate that our model fit is probably not properly estimating these parameters due to non-identifiability.
 
-### Results
-
-Let's take a look at our parameter estimates.
+Let's look at the summary, paying special attention to the Rhat which should be very close to 1, and n_eff which should be within two orders of magnitude of the number of non-warmup iterations.
 
 ```{r}
-plot(e2m,pars=c('bi','bh','bf','bl'))
+# get and print model summary
+mdlSummary <- summary(mdl)
+print(mdlSummary$summary)
 ```
 
-We can see here that the point estimates follow the pattern we would expect based on the results of the frequentist model we report in the paper.
+### Results
 
-* bi: Increasing stimulus intensity increases the perceived level of evidence. This parameter is a good sanity check and it orients us to the meaning of the units for these model coefficients.
-* bh: Regular speed HOPs increase the perceived level of evidence. This is consistent with reduced JNDs.
-* bf: Fast HOPs seem to have a neutral impact on the perceived level of evidence.
-* bl: Line ensembles seem to reduce the perceived level of evidence.
+Let's take a look at our parameter estimates. Here's the standard way to do this
 
-Note that the credibility intervals (CIs) on these estimates are wide. We should expect that a Bayesian hierarchical model, designed to preserve uncertainty in PF fits at the level of estimating population parameters, will be more conservative and have wider CIs.
+```{r}
+plot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+```
+
+There are some problems with this view. The parameter names for the condition means are indices into the vectors b_threshold, b_spread, and b_lapse, so these parameters are hard to interpret. Further, these hyperparameters for effects of visualization condition on the mean of each PF parameter are in a transformed parameter space. Their raw values are not very meaningful. What we need to do is recover meaningful parameter names and plug posterior samples into our model to generate possible estimated psychometric functions.
+
+First, we need to recover our condition names from the numeric indices in our model. Thankfully, tidybayes will do this for us.
+
+```{r}
+mdl %<>% recover_types(useData)
+```
+
+Next, we'll want to pull our posterior samples into a tidy (i.e., long) data table.
+
+```{r}
+# assign posterior samples to tidy tibble
+post <- mdl %>% 
+  spread_draws(b_threshold[condition],b_spread[condition],b_lapse[condition],sigma_log_threshold,sigma_log_spread,sigma_logit_lapse,threshold_zoffset[subject],spread_zoffset[subject],lapse_zoffset[subject],threshold[subject],spread[subject],lapse[subject])
+# print top 15 lines
+post %>% head(15)
+```
+
+We can use this data format to show estimated psychometric functions for each participant, color-coded by visualization condition.
+
+```{r}
+# generate a range of intensity values to plot
+n_intensity <- 101
+intensity <- seq_range(useData$intensity, n = n_intensity)
+# calculate possible PFs for every draw in post
+pfs <- psychometricM(intensity,post$threshold,post$spread,0.5,post$lapse)
+# add PFs and intensities to tibble of posterior samples
+post <- add_column(post,pf = split(pfs, col(pfs)), intensity = list(intensity)) %>% unnest()
+
+
+# calculate 100 possible PFs for each subject
+# iterations <- 100
+# n_subjects <- nlevels(useData$subject)
+# intnsty <- array(0,dim=n_intensity*iterations*n_subjects) # preallocate
+# pf <- array(0,dim=n_intensity*iterations*n_subjects)
+# iter <- array(0,dim=n_intensity*iterations*n_subjects)
+# subj <- array(0,dim=n_intensity*iterations*n_subjects)
+# cond <- array(0,dim=n_intensity*iterations*n_subjects)
+# for (i in 1:n_subjects) {
+#   for (j in 1:iterations) {
+#     # starting and ending indices
+#     start <- (i - 1)*iterations*n_intensity + (j - 1)*n_intensity + 1
+#     end <- start + n_intensity - 1
+#     # fill in vectors that will become columns of data table
+#     intnsty[start:end] <- intensity
+#     pf[start:end] <- psychometric(intensity,post$threshold[post$subject==i & post$.draw==j],post$spread[post$subject==i & post$.draw==j],0.5,post$lapse[post$subject==i & post$.draw==j])
+#     iter[start:end] <- rep(j,n_intensity)
+#     subj[start:end] <- rep(i,n_intensity)
+#     iter[start:end] <- rep(post$condition[post$subject==i && post$.iteration==j],n_intensity)
+#   }
+# }
+
+# plot pfs based on posterior samples
+# post %>%
+#   mutate(pf = psychometric(intensity,threshold,spread,lapse))
+# useData %>%    # get the values we want from the raw data for our prediction grid
+#   data_grid(intensity = seq_range(intensity, n = 101), condition, subject) %>%
+#   add_fitted_draws(mdl, n = 100) %>%    # sample 100 fits from the posterior
+#   ggplot(aes(x = intensity, y = correct)) +
+#   geom_line(aes(y = psychometric(intensity,threshold,spread,lapse), group = .draw), alpha = 0.2, color = condition) +
+#   geom_point(data = useData) +
+#   facet_wrap(~ subject)
+```
+
+
+
+<!-- We can see here that the point estimates follow the pattern we would expect based on the results of the frequentist model we report in the paper. -->
+
+<!-- * bi: Increasing stimulus intensity increases the perceived level of evidence. This parameter is a good sanity check and it orients us to the meaning of the units for these model coefficients. -->
+<!-- * bh: Regular speed HOPs increase the perceived level of evidence. This is consistent with reduced JNDs. -->
+<!-- * bf: Fast HOPs seem to have a neutral impact on the perceived level of evidence. -->
+<!-- * bl: Line ensembles seem to reduce the perceived level of evidence. -->
+
+<!-- Note that the credibility intervals (CIs) on these estimates are wide. We should expect that a Bayesian hierarchical model, designed to preserve uncertainty in PF fits at the level of estimating population parameters, will be more conservative and have wider CIs. -->
+
+
+
+
 
 <!-- ### OLD Preprocessing -->
 
@@ -297,3 +436,66 @@ Note that the credibility intervals (CIs) on these estimates are wide. We should
 <!--   correct ~ binomial(1,p); -->
 <!-- }' -->
 <!-- ``` -->
+
+<!-- Reformat the raw data from the experiment as a list, changing types to integers as needed and taking the absolute value of ratio (i.e., stimulus intensity). This step will enable Stan to correctly process the data. -->
+
+<!-- ```{r} -->
+<!-- # format data for model -->
+<!-- e2data <- list( -->
+<!--   N = length(e2df$Ratio), -->
+<!--   S = length(unique(e2df$WorkerID)), -->
+<!--   correct = as.integer(e2df$Correct), -->
+<!--   intensity = abs(e2df$Ratio), -->
+<!--   hops = as.integer(e2df$Visualization=="h"), -->
+<!--   fast = as.integer(e2df$Visualization=="hf"), -->
+<!--   lines = as.integer(e2df$Visualization=="c"), -->
+<!--   subject = as.integer(as.factor(e2df$WorkerID)) -->
+<!-- ) -->
+<!-- ``` -->
+
+<!-- # ```{r} -->
+<!-- # # model specification in Stan -->
+<!-- # stanCode <-  -->
+<!-- # 'data { -->
+<!-- #   int<lower=0> N; // number of obs -->
+<!-- #   int<lower=0> S; // number of subjects -->
+<!-- #   int<lower=0,upper=1> correct[N]; // correctness of judgments on each trial -->
+<!-- #   real<lower=0> intensity[N]; // stimulus intensity on each trial -->
+<!-- #   int<lower=0,upper=1> hops[N]; // dummy code for regular speed HOPs -->
+<!-- #   int<lower=0,upper=1> fast[N]; // dummy code for fast HOPs -->
+<!-- #   int<lower=0,upper=1> lines[N]; // dummy code for line ensembles -->
+<!-- #   int<lower=0> subject[N]; //subject index for each observation -->
+<!-- # } -->
+<!-- # parameters { -->
+<!-- #   real<lower=0> threshold[S]; // estimate threshold, spread, and lapse parameters of the PF for each subject -->
+<!-- #   real<lower=0> spread[S]; -->
+<!-- #   real<lower=0,upper=0.2> lapse[S]; -->
+<!-- #   real bi; // model coefficients -->
+<!-- #   real bh; -->
+<!-- #   real bf; -->
+<!-- #   real bl; -->
+<!-- # //  real<lower=0> mu; // hyperparameters for population JNDs -->
+<!-- # //  real<lower=0> sigma; -->
+<!-- # } -->
+<!-- # model { -->
+<!-- #   vector[N] p; // probability of being correct on each trial -->
+<!-- #   threshold ~ normal(0,2); // priors for PF parameters -->
+<!-- # //  threshold ~ normal(mu,sigma); // priors for PF parameters -->
+<!-- #   spread ~ cauchy(0,2); -->
+<!-- #   lapse ~ beta(0.026,0.500); // mean = 0.05; 95% interval = 0.1 -->
+<!-- #   bi ~ normal(0,2); // mildly informative priors for model coefficients -->
+<!-- #   bh ~ normal(0,2); -->
+<!-- #   bf ~ normal(0,2); -->
+<!-- #   bl ~ normal(0,2); -->
+<!-- # //  mu ~ normal(0,5); // weak priors for threshold -->
+<!-- # //  sigma ~ cauchy(0,2); -->
+<!-- #   for (i in 1:N) { -->
+<!-- #     // linear model for effects on perceived stimulus intensity -->
+<!-- #     real lm; -->
+<!-- #     lm = bi*intensity[i] + bh*hops[i] + bf*fast[i] + bl*lines[i]; -->
+<!-- #     // psychometric function as inverse link function -->
+<!-- #     p[i] = (0.5 - lapse[subject[i]])*Phi((lm - threshold[subject[i]])/spread[subject[i]]/sqrt(2.0)) + 0.5; -->
+<!-- #   } -->
+<!-- #   correct ~ binomial(1,p); -->
+<!-- # }' -->
+<!-- # ``` -->
