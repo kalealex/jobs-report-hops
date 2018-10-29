@@ -15,6 +15,7 @@ library(tidyverse)
 library(tidybayes)
 library(magrittr)
 library(modelr)
+library(gganimate)
 ```
 
 ## Experiment 2
@@ -56,7 +57,7 @@ We model the probability of a correct response from 0.5 (guessing) to 1 - lapse 
 We define the psychometric function in R so that we can use it in postprocessing.
 
 ```{r}
-psychometricM <- function(intensity,m,sd,guess,lapse){
+psychometric <- function(intensity,m,sd,guess,lapse){
   # handle arguments
   if(missing(guess)) {
     guess <- .5
@@ -64,41 +65,21 @@ psychometricM <- function(intensity,m,sd,guess,lapse){
   if( missing(lapse)) {
     lapse <- 0
   }
+  intensity <- as.matrix(intensity)
 
   # set upper and lower bounds
   lowerBound <- guess
   upperBound <- 1 - lapse
 
   # calculate z score for each level of intensity
-  z <- drop(outer(intensity, m, `-`) / rep(sd, each = nrow(outer(intensity,post$threshold[post$subject==i],`-`))))
+  r <- dim(intensity)[1]
+  c <- dim(intensity)[2]
+  z <- (intensity - m * matrix(1, r, c)) / sd
 
   # scale cumulative probability density between upper and lower bound
   p <- lowerBound + pnorm(z / sqrt(2)) * (upperBound - lowerBound)
   return(p)
 }
-# psychometric <- function(intensity,m,sd,guess,lapse){
-#   # handle arguments
-#   if(missing(guess)) {
-#     guess <- .5
-#   }
-#   if( missing(lapse)) {
-#     lapse <- 0
-#   }
-#   intensity <- as.matrix(intensity)
-# 
-#   # set upper and lower bounds
-#   lowerBound <- guess
-#   upperBound <- 1 - lapse
-# 
-#   # calculate z score for each level of intensity
-#   r <- dim(intensity)[1]
-#   c <- dim(intensity)[2]
-#   z <- (intensity - m * matrix(1, r, c)) / sd
-# 
-#   # scale cumulative probability density between upper and lower bound
-#   p <- lowerBound + pnorm(z / sqrt(2)) * (upperBound - lowerBound)
-#   return(p)
-# }
 ```
 
 Below is the specification of the statistical model. Note the following features of the model:
@@ -171,25 +152,23 @@ mdlSpec <- stan_model(model_code = stanCode)
 Next we fit the model to our data using Stan.
 
 ```{r}
-# run model 
-mdl = sampling(
-  mdlSpec, 
-  data = compose_data(useData,condition = x_at_y(condition, subject),.n_name = n_prefix("N")),
-  chains = 2,
-  cores = 2,
-  warmup = 1000,
-  iter = 2000,
-  control = list(adapt_delta=0.99,max_treedepth = 15)
-)
-# oneMdl <- stan(
-#   model_code = stanCode,
-#   data = e2data,
-#   chains = 1,
+# run model (actually load it instead of running)
+# mdl = sampling(
+#   mdlSpec, 
+#   data = compose_data(useData,condition = x_at_y(condition, subject),.n_name = n_prefix("N")),
+#   chains = 2,
 #   cores = 2,
-#   warmup = 500,
-#   iter = 1500,
-#   control = list(adapt_delta = 0.99,max_treedepth = 15)
+#   warmup = 1000,
+#   iter = 2000,
+#   control = list(adapt_delta=0.99,max_treedepth = 15)
 # )
+```
+
+We save the run of the model and load it, so that we don't have to run it every time.
+
+```{r}
+# saveRDS(mdl,'oneMdl.rds')
+mdl <- readRDS('oneMdl.rds')
 ```
 
 ### Check Model Perfomance
@@ -197,7 +176,7 @@ mdl = sampling(
 This kind of Bayesian model samples from a Markov Chain Monte Claro algoritm to estimate each parameter in our model. Here we can see whether the four separate simulations we ran above converged (a sign of reliable estimates) and whether the any the samples from any simulation contain autocorrelation (a sign that out simulation got stuck at a given location in parameter space, and we should run the model fit again and possibly change our model specification or priors). We check this by looking at a traceplot.
 
 ```{r}
-traceplot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+traceplot(mdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
 ```
 
 Here, we just want to see that the simulation is not getting stuck on particular parameter values.
@@ -205,7 +184,7 @@ Here, we just want to see that the simulation is not getting stuck on particular
 Let's also check whether our model had any problems identifying any of our parameters due to highly correltated parameter values. We check this using a pairs plot.
 
 ```{r}
-pairs(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+pairs(mdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
 ```
 
 Too much correlation between posterior samples would here would indicate that our model fit is probably not properly estimating these parameters due to non-identifiability.
@@ -223,10 +202,14 @@ print(mdlSummary$summary)
 Let's take a look at our parameter estimates. Here's the standard way to do this
 
 ```{r}
-plot(oneMdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
+plot(mdl,pars=c('b_threshold[1]','b_spread[1]','b_lapse[1]','b_threshold[2]','b_spread[2]','b_lapse[2]','b_threshold[3]','b_spread[3]','b_lapse[3]','sigma_log_threshold','sigma_log_spread','sigma_logit_lapse','threshold[1]','spread[1]','lapse[1]'))
 ```
 
 There are some problems with this view. The parameter names for the condition means are indices into the vectors b_threshold, b_spread, and b_lapse, so these parameters are hard to interpret. Further, these hyperparameters for effects of visualization condition on the mean of each PF parameter are in a transformed parameter space. Their raw values are not very meaningful. What we need to do is recover meaningful parameter names and plug posterior samples into our model to generate possible estimated psychometric functions.
+
+### PFs for individuals
+
+#### Getting the posterior
 
 First, we need to recover our condition names from the numeric indices in our model. Thankfully, tidybayes will do this for us.
 
@@ -234,61 +217,154 @@ First, we need to recover our condition names from the numeric indices in our mo
 mdl %<>% recover_types(useData)
 ```
 
-Next, we'll want to pull our posterior samples into a tidy (i.e., long) data table.
+Next, we'll want to pull our posterior samples of individual PF parameter estimates into a tidy (i.e., long) data table.
 
 ```{r}
 # assign posterior samples to tidy tibble
-post <- mdl %>% 
-  spread_draws(b_threshold[condition],b_spread[condition],b_lapse[condition],sigma_log_threshold,sigma_log_spread,sigma_logit_lapse,threshold_zoffset[subject],spread_zoffset[subject],lapse_zoffset[subject],threshold[subject],spread[subject],lapse[subject])
-# print top 15 lines
-post %>% head(15)
+post <- mdl %>% # should reduce to used params only
+  spread_draws(threshold[subject],spread[subject],lapse[subject])
+# print table
+post
 ```
 
-We can use this data format to show estimated psychometric functions for each participant, color-coded by visualization condition.
+#### Subset the posterior
+
+Let's look at only 100 (approximatedly equally likely) draws from our posterior, just to keep the amount of data we are processing and visualizing reasonable.
 
 ```{r}
-# generate a range of intensity values to plot
+post_small = 
+  post %>%
+  filter(.draw %in% floor(seq(1, 2000, length.out = 100)))
+```
+
+#### Make a prediction grid
+
+We'll want to plot PFs for each subject across the range of intensity values observed. Since we can only plot so many subjects simultaneously in one view, we'll make predictions for only a subset of subjects in this illustration.
+
+```{r}
 n_intensity <- 101
 intensity <- seq_range(useData$intensity, n = n_intensity)
-# calculate possible PFs for every draw in post
-pfs <- psychometricM(intensity,post$threshold,post$spread,0.5,post$lapse)
-# add PFs and intensities to tibble of posterior samples
-post <- add_column(post,pf = split(pfs, col(pfs)), intensity = list(intensity)) %>% unnest()
 
+grid = useData %>% 
+  data_grid(nesting(condition, subject)) %>%
+  filter(as.numeric(subject) %in% 1:27) %>%
+  mutate(intensity = list(intensity))
 
-# calculate 100 possible PFs for each subject
-# iterations <- 100
-# n_subjects <- nlevels(useData$subject)
-# intnsty <- array(0,dim=n_intensity*iterations*n_subjects) # preallocate
-# pf <- array(0,dim=n_intensity*iterations*n_subjects)
-# iter <- array(0,dim=n_intensity*iterations*n_subjects)
-# subj <- array(0,dim=n_intensity*iterations*n_subjects)
-# cond <- array(0,dim=n_intensity*iterations*n_subjects)
-# for (i in 1:n_subjects) {
-#   for (j in 1:iterations) {
-#     # starting and ending indices
-#     start <- (i - 1)*iterations*n_intensity + (j - 1)*n_intensity + 1
-#     end <- start + n_intensity - 1
-#     # fill in vectors that will become columns of data table
-#     intnsty[start:end] <- intensity
-#     pf[start:end] <- psychometric(intensity,post$threshold[post$subject==i & post$.draw==j],post$spread[post$subject==i & post$.draw==j],0.5,post$lapse[post$subject==i & post$.draw==j])
-#     iter[start:end] <- rep(j,n_intensity)
-#     subj[start:end] <- rep(i,n_intensity)
-#     iter[start:end] <- rep(post$condition[post$subject==i && post$.iteration==j],n_intensity)
-#   }
-# }
-
-# plot pfs based on posterior samples
-# post %>%
-#   mutate(pf = psychometric(intensity,threshold,spread,lapse))
-# useData %>%    # get the values we want from the raw data for our prediction grid
-#   data_grid(intensity = seq_range(intensity, n = 101), condition, subject) %>%
-#   add_fitted_draws(mdl, n = 100) %>%    # sample 100 fits from the posterior
-#   ggplot(aes(x = intensity, y = correct)) +
-#   geom_line(aes(y = psychometric(intensity,threshold,spread,lapse), group = .draw), alpha = 0.2, color = condition) +
-#   geom_point(data = useData) +
-#   facet_wrap(~ subject)
+grid
 ```
+
+#### Run the psychometric function over the prediction grid
+
+Here, we call the psychometric function we defined above for each subject * draw from our posterior.
+
+```{r}
+pfdf = grid %>%
+  inner_join(post_small) %>%
+  mutate(pf = pmap(list(intensity, threshold, spread, lapse), ~  psychometric(..1, ..2, ..3, 0.5, ..4))) %>%
+  unnest()
+```
+
+#### Plot the PF
+
+Here, we create hypothetical outcome plots showing estimated psychometric functions for each draw from our posterior distribution of parameter estimates.
+
+```{r}
+p = pfdf %>%
+  group_by(condition) %>%
+  mutate(subject = as.numeric(factor(subject))) %>%
+  filter(subject %in% 1:3) %>%
+  ggplot(aes(intensity, pf)) +
+  theme_minimal() +
+  geom_line() +
+  facet_grid(subject ~ condition, scales = "free") +
+  transition_manual(.draw)
+
+animate(p, fps=2.5, width=500, height=300)
+```
+
+### PFs for average individual in each condition
+
+#### Getting the posterior 
+
+Next, we'll want to pull our posterior samples of the population mean PF parameters into a tidy (i.e., long) data table.
+
+```{r}
+# assign posterior samples to tidy tibble
+post_avg <- mdl %>% # should reduce to used params only
+  spread_draws(b_threshold[condition],b_spread[condition],b_lapse[condition])
+# print table
+post_avg
+```
+
+#### Subset the posterior
+
+Let's look at only 100 (approximatedly equally likely) draws from our posterior, just to keep the amount of data we are processing and visualizing reasonable.
+
+```{r}
+post_small_avg = 
+  post_avg %>%
+  filter(.draw %in% floor(seq(1, 2000, length.out = 100)))
+```
+
+#### Make a prediction grid
+
+We'll want to plot PFs across the range of intensity values observed. We'll plot the average PF for each condition in our experiment.
+
+```{r}
+n_intensity <- 101
+intensity <- seq_range(useData$intensity, n = n_intensity)
+
+grid = useData %>% 
+  data_grid(condition) %>%
+  mutate(intensity = list(intensity))
+
+grid
+```
+
+#### Run the psychometric function over the prediction grid
+
+Here, we call the psychometric function we defined above for each condition * draw from our posterior.
+
+```{r}
+# this time we need to transform the parameters since these are our hyperparameters
+pfdf_avg = grid %>%
+  inner_join(post_small_avg) %>%
+  mutate(pf = pmap(list(intensity, exp(b_threshold), exp(b_spread), plogis(b_lapse)), ~  psychometric(..1, ..2, ..3, 0.5, ..4))) %>%
+  unnest()
+```
+
+#### Plot the PF
+
+Here, we create hypothetical outcome plots showing estimated psychometric functions for each draw from our posterior distribution of parameter estimates.
+
+```{r}
+p = pfdf_avg %>%
+  group_by(condition) %>%
+  ggplot(aes(intensity, pf)) +
+  theme_minimal() +
+  geom_line() +
+  facet_grid(~ condition, scales = "free") +
+  transition_manual(.draw)
+
+animate(p, fps=2.5, width=500, height=200)
+```
+
+Here's the same plot using color rather than facting to differentiate conditions.
+
+```{r}
+p = pfdf_avg %>%
+  group_by(condition) %>%
+  ggplot(aes(intensity, pf, color=condition)) +
+  theme_minimal() +
+  geom_line() +
+  transition_manual(.draw)
+
+animate(p, fps=2.5, width=500, height=200)
+```
+
+
+
+
 
 
 
